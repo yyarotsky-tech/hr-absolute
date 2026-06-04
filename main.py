@@ -7,7 +7,7 @@ from typing import Optional, Dict, Any
 from dotenv import load_dotenv
 
 from core.transcriber import transcribe_audio
-from core.analyzers import analyze_candidate
+from core.analyzers import analyze_candidate, analyze_workforce
 from core.file_parser import extract_text_from_file
 
 load_dotenv()
@@ -22,6 +22,7 @@ async def verify_api_key(api_key: str = Security(api_key_header)):
 
 app = FastAPI(title="HR Absolute API", version="0.1.0")
 
+# ---------- Модели ----------
 class AnalyzeCandidateRequest(BaseModel):
     transcribed_text: Optional[str] = None
     vacancy_text: Optional[str] = None
@@ -38,6 +39,16 @@ class TranscribeResponse(BaseModel):
     status: str
     transcribed_text: str
 
+class WorkforceRequest(BaseModel):
+    tasks: str
+    current_staff: str
+    options: Optional[Dict[str, bool]] = {"generate_vacancies": True}
+
+class WorkforceResponse(BaseModel):
+    status: str
+    report: Dict[str, Any]
+
+# ---------- Корневой эндпоинт ----------
 @app.get("/")
 async def root():
     return {"message": "HR Absolute API is running"}
@@ -46,6 +57,7 @@ async def root():
 async def check_key(api_key: str = Depends(verify_api_key)):
     return {"status": "valid", "message": "API key is valid"}
 
+# ---------- Транскрипция ----------
 @app.post("/api/transcribe", response_model=TranscribeResponse)
 async def transcribe_endpoint(
     audio: UploadFile = File(...),
@@ -69,6 +81,7 @@ async def transcribe_endpoint(
     finally:
         os.unlink(tmp_path)
 
+# ---------- Анализ кандидата ----------
 @app.post("/api/analyze/candidate", response_model=AnalyzeCandidateResponse)
 async def analyze_candidate_endpoint(
     request: AnalyzeCandidateRequest,
@@ -87,3 +100,24 @@ async def analyze_candidate_endpoint(
         traceback.print_exc()
         print("="*60 + "\n")
         raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+
+# ---------- Workforce Planning ----------
+@app.post("/api/analyze/workforce", response_model=WorkforceResponse)
+async def workforce_endpoint(
+    request: WorkforceRequest,
+    api_key: str = Depends(verify_api_key)
+):
+    data = request.model_dump()
+    if not data.get("tasks") and not data.get("current_staff"):
+        raise HTTPException(status_code=400, detail="Provide at least tasks or current_staff")
+    try:
+        report = analyze_workforce(data)
+        return WorkforceResponse(status="success", report=report)
+    except Exception as e:
+        print(f"Workforce error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ---------- Запуск (для локального использования) ----------
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
