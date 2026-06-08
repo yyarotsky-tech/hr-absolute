@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from core.transcriber import transcribe_audio
 from core.analyzers import analyze_candidate, analyze_workforce
 from core.file_parser import extract_text_from_file
+from core.db import save_candidate, get_all_candidates, get_candidate, search_candidates, delete_candidate
 
 load_dotenv()
 
@@ -47,6 +48,32 @@ class WorkforceRequest(BaseModel):
 class WorkforceResponse(BaseModel):
     status: str
     report: Dict[str, Any]
+
+class CandidateSaveRequest(BaseModel):
+    name: str
+    data: Dict[str, Any]
+
+class CandidateResponse(BaseModel):
+    id: int
+    name: str
+    created_at: str
+    transcribed_snippet: Optional[str] = None
+    vacancy_snippet: Optional[str] = None
+    resume_snippet: Optional[str] = None
+
+class CandidateDetailResponse(BaseModel):
+    id: int
+    name: str
+    created_at: str
+    transcribed_text: Optional[str] = None
+    vacancy_text: Optional[str] = None
+    resume_text: Optional[str] = None
+    market_analysis: Optional[str] = None
+    profession: Optional[str] = None
+    report: Optional[Dict[str, Any]] = None
+
+class SearchRequest(BaseModel):
+    keyword: str
 
 # ---------- Корневой эндпоинт ----------
 @app.get("/")
