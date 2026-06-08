@@ -1,9 +1,11 @@
+from .llm_client import ask_llm
+
 def build_candidate_prompt(data: dict) -> str:
     audio_text = data.get("transcribed_text", "")
     vacancy = data.get("vacancy_text", "")
     resume = data.get("resume_text", "")
     market = data.get("market_analysis", "")
-    profession = data.get("profession", "профессия не указана")
+    profession = data.get("profession", "")
     transferable = data.get("options", {}).get("transferable", True)
     antifilter = data.get("options", {}).get("antifilter", True)
 
@@ -16,16 +18,16 @@ def build_candidate_prompt(data: dict) -> str:
 
     tasks = []
     if vacancy and resume:
-        tasks.append(f"1. Оцени соответствие резюме вакансии для позиции {profession}. Укажи процент, сильные стороны, слабые места.")
+        tasks.append(f"1. Оцени соответствие резюме вакансии для позиции {(profession or 'профессия не указана').upper()}. Укажи процент, сильные стороны, слабые места.")
     elif vacancy and not resume:
-        tasks.append(f"1. Оцени, насколько кандидат (по аудио) подходит под вакансию {profession}.")
+        tasks.append(f"1. Оцени, насколько кандидат (по аудио) подходит под вакансию {(profession or 'профессия не указана').upper()}.")
     elif resume and not vacancy:
-        tasks.append(f"1. Проанализируй резюме кандидата для позиции {profession}. Напиши, на какие задачи он может претендовать.")
+        tasks.append(f"1. Проанализируй резюме кандидата для позиции {(profession or 'профессия не указана').upper()}. Напиши, на какие задачи он может претендовать.")
     else:
-        tasks.append(f"1. Проведи общий анализ аудио собеседования для позиции {profession}. Выдели ключевые компетенции.")
+        tasks.append(f"1. Проведи общий анализ аудио собеседования для позиции {(profession or 'профессия не указана').upper()}. Выдели ключевые компетенции.")
 
-    tasks.append(f"2. Проанализируй рынок для профессии {profession}. Укажи востребованность, среднюю зарплату, конкуренцию.")
-    tasks.append(f"3. Напиши предполагаемый ответ кандидату на позицию {profession} (приглашение, отказ, уточнения).")
+    tasks.append(f"2. Проанализируй рынок для профессии {(profession or 'профессия не указана').upper()}. Укажи востребованность, среднюю зарплату, конкуренцию.")
+    tasks.append(f"3. Напиши предполагаемый ответ кандидату на позицию {(profession or 'профессия не указана').upper()} (приглашение, отказ, уточнения).")
 
     if transferable:
         tasks.insert(1, "Учитывай переносимые навыки и смежные компетенции, даже если нет прямого опыта.")
@@ -33,7 +35,7 @@ def build_candidate_prompt(data: dict) -> str:
         tasks.insert(0, "РАБОТАЙ В РЕЖИМЕ АНТИФИЛЬТРА: ищи сценарии успеха, а не причины отказа.")
 
     prompt = f"""
-Ты – профессиональный рекрутер, специализирующийся на найме {profession}.
+Ты – профессиональный рекрутер, специализирующийся на найме {(profession or 'профессия не указана').upper()}.
 
 Данные:
 {chr(10).join(blocks)}
@@ -42,11 +44,12 @@ def build_candidate_prompt(data: dict) -> str:
 {chr(10).join(tasks)}
 
 Ответ оформи в виде разделов с заголовками:
-=== СООТВЕТСТВИЕ ПОЗИЦИИ {profession.upper()} ===
+=== СООТВЕТСТВИЕ ПОЗИЦИИ {(profession or 'профессия не указана').upper()} ===
 === АНАЛИЗ РЫНКА ===
 === ПРЕДПОЛАГАЕМЫЙ ОТВЕТ КАНДИДАТУ ===
 """
     return prompt
+
 def build_workforce_prompt(data: dict) -> str:
     tasks = data.get("tasks", "")
     staff = data.get("current_staff", "")
