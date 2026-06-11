@@ -3,13 +3,13 @@ import tempfile
 from fastapi import FastAPI, UploadFile, File, HTTPException, Security, Depends
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from dotenv import load_dotenv
 
 from core.transcriber import transcribe_audio
 from core.analyzers import analyze_candidate, analyze_workforce
 from core.file_parser import extract_text_from_file
-from core.db import save_candidate, get_all_candidates, get_candidate, search_candidates, delete_candidate
+from core.db import save_candidate, get_all_candidates, get_candidate, search_candidates, delete_candidate, save_rating, get_industry_avg
 
 load_dotenv()
 
@@ -75,7 +75,28 @@ class CandidateDetailResponse(BaseModel):
 class SearchRequest(BaseModel):
     keyword: str
 
-# ---------- Корневой эндпоинт ----------
+class RatingRequest(BaseModel):
+    candidate_id: int
+    rating: int
+    comment: Optional[str] = None
+
+class QueryRequest(BaseModel):
+    text: Optional[str] = None
+    min_rating: Optional[int] = None
+    max_rating: Optional[int] = None
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+
+class BenchmarkCompareRequest(BaseModel):
+    industry: str
+    employee_count: int
+    turnover_rate: float
+    time_to_hire: int
+    avg_salary: int
+    additional_question: Optional[str] = None
+    additional_question: Optional[str] = None
+
+# ---------- Корневые эндпоинты ----------
 @app.get("/")
 async def root():
     return {"message": "HR Absolute API is running"}
@@ -144,7 +165,446 @@ async def workforce_endpoint(
         print(f"Workforce error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# ---------- Запуск (для локального использования) ----------
+# ---------- База кандидатов ----------
+@app.post("/api/candidates/save", response_model=CandidateResponse)
+async def save_candidate_endpoint(request: CandidateSaveRequest, api_key: str = Depends(verify_api_key)):
+    cand_id = save_candidate(request.name, request.data)
+    return CandidateResponse(id=cand_id, name=request.name, created_at="", transcribed_snippet="", vacancy_snippet="", resume_snippet="")
+
+@app.get("/api/candidates", response_model=List[CandidateResponse])
+async def list_candidates(api_key: str = Depends(verify_api_key)):
+    return get_all_candidates()
+
+@app.get("/api/candidates/{candidate_id}", response_model=CandidateDetailResponse)
+async def get_candidate_endpoint(candidate_id: int, api_key: str = Depends(verify_api_key)):
+    cand = get_candidate(candidate_id)
+    if not cand:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    return cand
+
+@app.post("/api/candidates/search", response_model=List[CandidateResponse])
+async def search_candidates_endpoint(request: SearchRequest, api_key: str = Depends(verify_api_key)):
+    return search_candidates(request.keyword)
+
+@app.delete("/api/candidates/{candidate_id}")
+async def delete_candidate_endpoint(candidate_id: int, api_key: str = Depends(verify_api_key)):
+    deleted = delete_candidate(candidate_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    return {"status": "deleted"}
+
+# ---------- Rate Endpoint ----------
+@app.post("/api/rate")
+async def rate_candidate(request: RatingRequest, api_key: str = Depends(verify_api_key)):
+    if request.rating < 1 or request.rating > 10:
+        raise HTTPException(status_code=400, detail="Rating must be between 1 and 10")
+    save_rating(request.candidate_id, request.rating, request.comment)
+    return {"status": "success", "message": f"Rating {request.rating} saved for candidate {request.candidate_id}"}
+
+# ---------- Query Endpoint ----------
+@app.post("/api/query")
+async def query_candidates(request: QueryRequest, api_key: str = Depends(verify_api_key)):
+    candidates = get_all_candidates()
+    result = []
+    
+    for cand in candidates:
+        if request.date_from and cand["created_at"] < request.date_from:
+            continue
+        if request.date_to and cand["created_at"] > request.date_to:
+            continue
+        
+        if request.text:
+            text_match = False
+            full_text = f"{cand.get('transcribed_snippet') or ''} {cand.get('vacancy_snippet') or ''} {cand.get('resume_snippet') or ''}".lower()
+            if request.text.lower() in full_text:
+                text_match = True
+            if not text_match:
+                continue
+        
+        snippet = cand.get("transcribed_snippet") or ""
+        result.append({
+            "id": cand["id"],
+            "name": cand["name"],
+            "created_at": cand["created_at"],
+            "snippet": snippet[:100] if snippet else ""
+        })
+    
+    return {"status": "success", "count": len(result), "candidates": result}
+
+# ---------- Бенчмаркинг ----------
+@app.post("/api/benchmark/compare")
+async def compare_benchmark(request: BenchmarkCompareRequest, api_key: str = Depends(verify_api_key)):
+    industry_avg = get_industry_avg(request.industry)
+    
+    from core.llm_client import ask_llm
+    
+    prompt = f"""
+Ты — HR-аналитик. Сравни показатели компании с рыночными средними.
+
+Показатели компании (отрасль: {request.industry}, число сотрудников: {request.employee_count}):
+- Текучесть: {request.turnover_rate}%
+- Время закрытия вакансии: {request.time_to_hire} дней
+- Средняя зарплата: {request.avg_salary} руб.
+
+Рыночные средние (по отрасли {request.industry}):
+- Средняя текучесть: {industry_avg.get('avg_turnover', 'нет данных')}%
+- Среднее время закрытия: {industry_avg.get('avg_time_to_hire', 'нет данных')} дней
+- Средняя зарплата: {industry_avg.get('avg_salary', 'нет данных')} руб.
+
+Задачи:
+1. Сравни каждый показатель с рынком (лучше/хуже/на уровне).
+2. Оцени риски.
+3. Дай рекомендации по улучшению.
+"""
+
+    # Добавляем дополнительный вопрос, если он есть
+    if request.additional_question:
+        prompt += f"""
+
+ДОПОЛНИТЕЛЬНЫЙ ВОПРОС ПОЛЬЗОВАТЕЛЯ:
+{request.additional_question}
+
+Пожалуйста, ответь на этот вопрос в дополнение к основному анализу.
+"""
+
+    # Добавляем дополнительный вопрос, если он есть
+    if request.additional_question:
+        prompt += f"""
+
+ДОПОЛНИТЕЛЬНЫЙ ВОПРОС ПОЛЬЗОВАТЕЛЯ:
+{request.additional_question}
+
+Пожалуйста, ответь на этот вопрос в дополнение к основному анализу.
+"""
+
+    analysis = ask_llm(prompt)
+    
+    return {
+        "status": "success",
+        "company_metrics": {
+            "turnover_rate": request.turnover_rate,
+            "time_to_hire": request.time_to_hire,
+            "avg_salary": request.avg_salary
+        },
+        "industry_avg": industry_avg,
+        "analysis": analysis
+    }
+
+# ---------- Росстат ----------
+@app.get("/api/rosstat/construction")
+async def get_rosstat_construction(api_key: str = Depends(verify_api_key)):
+    from core.rosstat_client import get_construction_salary
+    
+    data = get_construction_salary()
+    if data and data.get("value"):
+        return {
+            "status": "success",
+            "industry": "Строительство",
+            "avg_salary": data["value"],
+            "period": data.get("period", "последний доступный период"),
+            "source": "Росстат (ЕМИСС)"
+        }
+    else:
+        return {
+            "status": "error",
+            "message": "Не удалось получить данные. Возможно, API временно недоступно."
+        }
+
+# ---------- Вакансии ----------
+class VacancyRequest(BaseModel):
+    title: str
+    description: Optional[str] = None
+    requirements: Optional[str] = None
+    salary_min: Optional[int] = None
+    salary_max: Optional[int] = None
+
+class VacancyResponse(BaseModel):
+    id: int
+    title: str
+    description: Optional[str] = None
+    requirements: Optional[str] = None
+    salary_min: Optional[int] = None
+    salary_max: Optional[int] = None
+    status: str
+    created_at: str
+
+@app.post("/api/vacancies/add", response_model=VacancyResponse)
+async def add_vacancy(request: VacancyRequest, api_key: str = Depends(verify_api_key)):
+    from core.db import add_vacancy
+    vid = add_vacancy(request.title, request.description, request.requirements, request.salary_min, request.salary_max)
+    return VacancyResponse(id=vid, title=request.title, description=request.description, 
+                          requirements=request.requirements, salary_min=request.salary_min, 
+                          salary_max=request.salary_max, status="active", created_at="")
+
+@app.get("/api/vacancies", response_model=List[VacancyResponse])
+async def list_vacancies(api_key: str = Depends(verify_api_key)):
+    from core.db import get_all_vacancies
+    return get_all_vacancies()
+
+@app.delete("/api/vacancies/{vacancy_id}")
+async def delete_vacancy(vacancy_id: int, api_key: str = Depends(verify_api_key)):
+    from core.db import delete_vacancy
+    if not delete_vacancy(vacancy_id):
+        raise HTTPException(status_code=404, detail="Vacancy not found")
+    return {"status": "deleted"}
+
+# ---------- Матчинг ----------
+class MatchRequest(BaseModel):
+    candidate_id: Optional[int] = None
+    vacancy_id: Optional[int] = None
+
+class MatchResponse(BaseModel):
+    candidate_id: int
+    candidate_name: str
+    vacancy_id: int
+    vacancy_title: str
+    score: int
+    strengths: str
+    growth_points: str
+    success_scenario: str
+    alternative_roles: str
+
+@app.post("/api/match", response_model=List[MatchResponse])
+async def run_matching(request: MatchRequest, api_key: str = Depends(verify_api_key)):
+    from core.db import get_all_candidates, get_all_vacancies, get_candidate, get_vacancy
+    from core.llm_client import ask_llm
+    import json
+    
+    candidates = get_all_candidates()
+    vacancies = get_all_vacancies(status="active")
+    
+    if request.candidate_id:
+        candidates = [c for c in candidates if c["id"] == request.candidate_id]
+    if request.vacancy_id:
+        vacancies = [v for v in vacancies if v["id"] == request.vacancy_id]
+    
+    results = []
+    for candidate in candidates:
+        for vacancy in vacancies:
+            prompt = f"""
+Проанализируй соответствие кандидата вакансии.
+
+Данные кандидата:
+- Имя: {candidate.get('name')}
+- Текст из аудио/резюме: {candidate.get('transcribed_snippet', '')} {candidate.get('resume_snippet', '')}
+- Вакансия: {vacancy.get('title')} - {vacancy.get('description', '')} {vacancy.get('requirements', '')}
+
+Твоя задача:
+1. Оцени соответствие в процентах (0-100).
+2. Напиши 2-3 сильные стороны кандидата для этой вакансии.
+3. Напиши 2-3 точки роста (чего не хватает).
+4. Предложи сценарий успеха (как кандидат может быть полезен).
+5. Если соответствие <50%, предложи альтернативные роли.
+
+Ответ строго в формате JSON:
+{{
+    "score": 85,
+    "strengths": "Опыт Python 5 лет, знание FastAPI",
+    "growth_points": "Нет опыта с Docker",
+    "success_scenario": "Пригласить на собеседование",
+    "alternative_roles": "Мидл разработчик, технический писатель"
+}}
+"""
+            try:
+                response = ask_llm(prompt)
+                # Парсим JSON из ответа
+                result = json.loads(response)
+            except Exception as e:
+                result = {
+                    "score": 50,
+                    "strengths": "Анализ не удался",
+                    "growth_points": "Попробуйте позже",
+                    "success_scenario": "Требуется ручная проверка",
+                    "alternative_roles": ""
+                }
+            
+            results.append({
+                "candidate_id": candidate["id"],
+                "candidate_name": candidate["name"],
+                "vacancy_id": vacancy["id"],
+                "vacancy_title": vacancy["title"],
+                "score": result.get("score", 50),
+                "strengths": result.get("strengths", ""),
+                "growth_points": result.get("growth_points", ""),
+                "success_scenario": result.get("success_scenario", ""),
+                "alternative_roles": result.get("alternative_roles", "")
+            })
+    
+    return results
+
+# ---------- Запуск ----------
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+# ---------- Vacancies ----------
+class VacancyRequest(BaseModel):
+    title: str
+    description: Optional[str] = None
+    requirements: Optional[str] = None
+    salary_min: Optional[int] = None
+    salary_max: Optional[int] = None
+
+class VacancyResponse(BaseModel):
+    id: int
+    title: str
+    description: Optional[str] = None
+    requirements: Optional[str] = None
+    salary_min: Optional[int] = None
+    salary_max: Optional[int] = None
+    status: str
+    created_at: str
+
+@app.post("/api/vacancies/add", response_model=VacancyResponse)
+async def add_vacancy(request: VacancyRequest, api_key: str = Depends(verify_api_key)):
+    from core.db import add_vacancy
+    vid = add_vacancy(request.title, request.description, request.requirements, request.salary_min, request.salary_max)
+    return VacancyResponse(
+        id=vid, 
+        title=request.title, 
+        description=request.description, 
+        requirements=request.requirements, 
+        salary_min=request.salary_min, 
+        salary_max=request.salary_max, 
+        status="active", 
+        created_at=""
+    )
+
+@app.get("/api/vacancies", response_model=List[VacancyResponse])
+async def list_vacancies(api_key: str = Depends(verify_api_key)):
+    from core.db import get_all_vacancies
+    return get_all_vacancies()
+
+@app.delete("/api/vacancies/{vacancy_id}")
+async def delete_vacancy(vacancy_id: int, api_key: str = Depends(verify_api_key)):
+    from core.db import delete_vacancy
+    if not delete_vacancy(vacancy_id):
+        raise HTTPException(status_code=404, detail="Vacancy not found")
+    return {"status": "deleted"}
+
+# ---------- Матчинг ----------
+class MatchRequest(BaseModel):
+    candidate_id: Optional[int] = None
+    vacancy_id: Optional[int] = None
+
+class MatchResponse(BaseModel):
+    candidate_id: int
+    candidate_name: str
+    vacancy_id: int
+    vacancy_title: str
+    score: int
+    strengths: str
+    growth_points: str
+    success_scenario: str
+    alternative_roles: str
+
+@app.post("/api/match", response_model=List[MatchResponse])
+async def run_matching(request: MatchRequest, api_key: str = Depends(verify_api_key)):
+    from core.db import get_all_candidates, get_all_vacancies, get_candidate, get_vacancy, save_match, clear_matches
+    from core.llm_client import ask_llm
+    
+    candidates = get_all_candidates()
+    vacancies = get_all_vacancies(status="active")
+    
+    if request.candidate_id:
+        candidates = [c for c in candidates if c["id"] == request.candidate_id]
+    if request.vacancy_id:
+        vacancies = [v for v in vacancies if v["id"] == request.vacancy_id]
+    
+    # Очищаем старые результаты для этих пар
+    clear_matches()
+    
+    results = []
+    for candidate in candidates:
+        for vacancy in vacancies:
+            # Формируем промпт для DeepSeek
+            prompt = f"""
+Проанализируй соответствие кандидата вакансии.
+
+Данные кандидата:
+- Текст из аудио/резюме: {candidate.get('transcribed_snippet', '')} {candidate.get('resume_snippet', '')}
+- Вакансия: {vacancy.get('title')} - {vacancy.get('description', '')} {vacancy.get('requirements', '')}
+
+Твоя задача:
+1. Оцени соответствие в процентах (0-100).
+2. Напиши 2-3 сильные стороны кандидата для этой вакансии.
+3. Напиши 2-3 точки роста (чего не хватает).
+4. Предложи сценарий успеха (как кандидат может быть полезен).
+5. Если соответствие <50%, предложи альтернативные роли.
+
+Ответ строго в формате JSON:
+{{
+    "score": 85,
+    "strengths": "Опыт Python 5 лет, знание FastAPI",
+    "growth_points": "Нет опыта с Docker",
+    "success_scenario": "Пригласить на собеседование",
+    "alternative_roles": "Мидл разработчик, технический писатель"
+}}
+"""
+            try:
+                response = ask_llm(prompt)
+                # Парсим JSON из ответа
+                import json
+                result = json.loads(response)
+            except Exception as e:
+                result = {
+                    "score": 50,
+                    "strengths": "Анализ не удался",
+                    "growth_points": "Попробуйте позже",
+                    "success_scenario": "Требуется ручная проверка",
+                    "alternative_roles": ""
+                }
+            
+            save_match(candidate["id"], vacancy["id"], result)
+            
+            results.append({
+                "candidate_id": candidate["id"],
+                "candidate_name": candidate["name"],
+                "vacancy_id": vacancy["id"],
+                "vacancy_title": vacancy["title"],
+                **result
+            })
+    
+    return results
+
+# ---------- Volunteer Vacancies ----------
+class VolunteerRequest(BaseModel):
+    title: str
+    description: Optional[str] = None
+    requirements: Optional[str] = None
+    organization: Optional[str] = None
+    contact: Optional[str] = None
+
+class VolunteerResponse(BaseModel):
+    id: int
+    title: str
+    description: Optional[str] = None
+    requirements: Optional[str] = None
+    organization: Optional[str] = None
+    contact: Optional[str] = None
+    created_at: str
+
+@app.post("/api/volunteer/add", response_model=VolunteerResponse)
+async def add_volunteer(request: VolunteerRequest, api_key: str = Depends(verify_api_key)):
+    from core.db import add_volunteer_vacancy
+    vid = add_volunteer_vacancy(
+        request.title, request.description, request.requirements,
+        request.organization, request.contact
+    )
+    return VolunteerResponse(
+        id=vid, title=request.title, description=request.description,
+        requirements=request.requirements, organization=request.organization,
+        contact=request.contact, created_at=""
+    )
+
+@app.get("/api/volunteer", response_model=List[VolunteerResponse])
+async def list_volunteer(api_key: str = Depends(verify_api_key)):
+    from core.db import get_all_volunteer_vacancies
+    return get_all_volunteer_vacancies()
+
+@app.delete("/api/volunteer/{vacancy_id}")
+async def delete_volunteer(vacancy_id: int, api_key: str = Depends(verify_api_key)):
+    from core.db import delete_volunteer_vacancy
+    if not delete_volunteer_vacancy(vacancy_id):
+        raise HTTPException(status_code=404, detail="Volunteer vacancy not found")
+    return {"status": "deleted"}
