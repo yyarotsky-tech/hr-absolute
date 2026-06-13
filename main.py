@@ -24,11 +24,12 @@ async def verify_api_key(api_key: str = Security(api_key_header)):
 
 app = FastAPI(title="HR Absolute API", version="0.1.0")
 
+# CORS настроен с явным разрешением методов
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
 )
 
@@ -121,6 +122,14 @@ class VacancyResponse(BaseModel):
     status: str
     created_at: str
 
+class VacancyUpdateRequest(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    requirements: Optional[str] = None
+    salary_min: Optional[int] = None
+    salary_max: Optional[int] = None
+    status: Optional[str] = None
+
 class VolunteerRequest(BaseModel):
     title: str
     description: Optional[str] = None
@@ -145,6 +154,21 @@ class EmployeeAssessmentRequest(BaseModel):
 class EmployeeAssessmentResponse(BaseModel):
     status: str
     assessment: Dict[str, Any]
+
+class MatchRequest(BaseModel):
+    candidate_id: Optional[int] = None
+    vacancy_id: Optional[int] = None
+
+class MatchResponse(BaseModel):
+    candidate_id: int
+    candidate_name: str
+    vacancy_id: int
+    vacancy_title: str
+    score: int
+    strengths: str
+    growth_points: str
+    success_scenario: str
+    alternative_roles: str
 
 # ---------- Корневые эндпоинты ----------
 @app.get("/")
@@ -256,13 +280,11 @@ async def rate_candidate(request: RatingRequest, api_key: str = Depends(verify_a
 async def query_candidates(request: QueryRequest, api_key: str = Depends(verify_api_key)):
     candidates = get_all_candidates()
     result = []
-    
     for cand in candidates:
         if request.date_from and cand["created_at"] < request.date_from:
             continue
         if request.date_to and cand["created_at"] > request.date_to:
             continue
-        
         if request.text:
             text_match = False
             full_text = f"{cand.get('transcribed_snippet') or ''} {cand.get('vacancy_snippet') or ''} {cand.get('resume_snippet') or ''}".lower()
@@ -270,7 +292,6 @@ async def query_candidates(request: QueryRequest, api_key: str = Depends(verify_
                 text_match = True
             if not text_match:
                 continue
-        
         snippet = cand.get("transcribed_snippet") or ""
         result.append({
             "id": cand["id"],
@@ -278,16 +299,13 @@ async def query_candidates(request: QueryRequest, api_key: str = Depends(verify_
             "created_at": cand["created_at"],
             "snippet": snippet[:100] if snippet else ""
         })
-    
     return {"status": "success", "count": len(result), "candidates": result}
 
 # ---------- Бенчмаркинг ----------
 @app.post("/api/benchmark/compare")
 async def compare_benchmark(request: BenchmarkCompareRequest, api_key: str = Depends(verify_api_key)):
     industry_avg = get_industry_avg(request.industry)
-    
     from core.llm_client import ask_llm
-    
     prompt = f"""
 Ты — HR-аналитик. Сравни показатели компании с рыночными средними.
 
@@ -310,7 +328,6 @@ async def compare_benchmark(request: BenchmarkCompareRequest, api_key: str = Dep
         prompt += f"\n\nДОПОЛНИТЕЛЬНЫЙ ВОПРОС ПОЛЬЗОВАТЕЛЯ:\n{request.additional_question}\n\nПожалуйста, ответь на этот вопрос в дополнение к основному анализу."
 
     analysis = ask_llm(prompt)
-    
     return {
         "status": "success",
         "company_metrics": {
@@ -326,7 +343,6 @@ async def compare_benchmark(request: BenchmarkCompareRequest, api_key: str = Dep
 @app.get("/api/rosstat/construction")
 async def get_rosstat_construction(api_key: str = Depends(verify_api_key)):
     from core.rosstat_client import get_construction_salary
-    
     data = get_construction_salary()
     if data and data.get("value"):
         return {
@@ -346,8 +362,8 @@ async def get_rosstat_construction(api_key: str = Depends(verify_api_key)):
 @app.post("/api/vacancies/add", response_model=VacancyResponse)
 async def add_vacancy(request: VacancyRequest, api_key: str = Depends(verify_api_key)):
     vid = add_vacancy(request.title, request.description, request.requirements, request.salary_min, request.salary_max)
-    return VacancyResponse(id=vid, title=request.title, description=request.description, 
-                          requirements=request.requirements, salary_min=request.salary_min, 
+    return VacancyResponse(id=vid, title=request.title, description=request.description,
+                          requirements=request.requirements, salary_min=request.salary_min,
                           salary_max=request.salary_max, status="active", created_at="")
 
 @app.get("/api/vacancies", response_model=List[VacancyResponse])
@@ -359,6 +375,20 @@ async def delete_vacancy(vacancy_id: int, api_key: str = Depends(verify_api_key)
     if not delete_vacancy(vacancy_id):
         raise HTTPException(status_code=404, detail="Vacancy not found")
     return {"status": "deleted"}
+
+@app.patch("/api/vacancies/{vacancy_id}")
+async def update_vacancy(vacancy_id: int, request: VacancyUpdateRequest, api_key: str = Depends(verify_api_key)):
+    from core.db import get_vacancy, update_vacancy
+    vacancy = get_vacancy(vacancy_id)
+    if not vacancy:
+        raise HTTPException(status_code=404, detail="Vacancy not found")
+    update_data = request.dict(exclude_unset=True)
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    updated = update_vacancy(vacancy_id, update_data)
+    if not updated:
+        raise HTTPException(status_code=500, detail="Failed to update vacancy")
+    return {"status": "updated", "id": vacancy_id}
 
 # ---------- Волонтёрство ----------
 @app.post("/api/volunteer/add", response_model=VolunteerResponse)
@@ -379,35 +409,17 @@ async def delete_volunteer(vacancy_id: int, api_key: str = Depends(verify_api_ke
     return {"status": "deleted"}
 
 # ---------- Матчинг ----------
-class MatchRequest(BaseModel):
-    candidate_id: Optional[int] = None
-    vacancy_id: Optional[int] = None
-
-class MatchResponse(BaseModel):
-    candidate_id: int
-    candidate_name: str
-    vacancy_id: int
-    vacancy_title: str
-    score: int
-    strengths: str
-    growth_points: str
-    success_scenario: str
-    alternative_roles: str
-
 @app.post("/api/match", response_model=List[MatchResponse])
 async def run_matching(request: MatchRequest, api_key: str = Depends(verify_api_key)):
     from core.db import get_all_candidates, get_all_vacancies
     from core.llm_client import ask_llm
     import json
-    
     candidates = get_all_candidates()
     vacancies = get_all_vacancies(status="active")
-    
     if request.candidate_id:
         candidates = [c for c in candidates if c["id"] == request.candidate_id]
     if request.vacancy_id:
         vacancies = [v for v in vacancies if v["id"] == request.vacancy_id]
-    
     results = []
     for candidate in candidates:
         for vacancy in vacancies:
@@ -446,7 +458,6 @@ async def run_matching(request: MatchRequest, api_key: str = Depends(verify_api_
                     "success_scenario": "Требуется ручная проверка",
                     "alternative_roles": ""
                 }
-            
             results.append({
                 "candidate_id": candidate["id"],
                 "candidate_name": candidate["name"],
@@ -458,7 +469,6 @@ async def run_matching(request: MatchRequest, api_key: str = Depends(verify_api_
                 "success_scenario": result.get("success_scenario", ""),
                 "alternative_roles": result.get("alternative_roles", "")
             })
-    
     return results
 
 # ---------- Оценка сотрудников ----------
@@ -466,7 +476,6 @@ async def run_matching(request: MatchRequest, api_key: str = Depends(verify_api_
 async def assess_employee(request: EmployeeAssessmentRequest, api_key: str = Depends(verify_api_key)):
     from core.llm_client import ask_llm
     import json
-    
     prompt = f"""
 Ты — HR-эксперт. Оцени сотрудника по следующим параметрам на основе текста.
 
@@ -506,7 +515,6 @@ async def assess_employee(request: EmployeeAssessmentRequest, api_key: str = Dep
             "recommendations": "Требуется ручная проверка",
             "burnout_risk": "неизвестен"
         }
-    
     assessment_data = {
         "employee_name": request.employee_name,
         "position": request.position,
@@ -522,84 +530,41 @@ async def assess_employee(request: EmployeeAssessmentRequest, api_key: str = Dep
         "raw_text": request.raw_text
     }
     save_employee_assessment(assessment_data)
-    
     return {"status": "success", "assessment": result}
+
+# ---------- Team Assessment ----------
+@app.get("/api/employee/team")
+async def team_assessment(api_key: str = Depends(verify_api_key)):
+    from core.db import get_employee_assessments
+    assessments = get_employee_assessments()
+    if not assessments:
+        return {"status": "success", "assessments": [], "summary": {"total_employees": 0}}
+    total = len(assessments)
+    avg_leadership = sum(a.get("leadership_score", 0) for a in assessments) / total
+    avg_stress = sum(a.get("stress_resilience_score", 0) for a in assessments) / total
+    avg_communication = sum(a.get("communication_score", 0) for a in assessments) / total
+    avg_learnability = sum(a.get("learnability_score", 0) for a in assessments) / total
+    avg_responsibility = sum(a.get("responsibility_score", 0) for a in assessments) / total
+    burnout_counts = {"низкий": 0, "средний": 0, "высокий": 0}
+    for a in assessments:
+        risk = a.get("burnout_risk", "неизвестен").lower()
+        if risk in burnout_counts:
+            burnout_counts[risk] += 1
+    return {
+        "status": "success",
+        "assessments": assessments,
+        "summary": {
+            "total_employees": total,
+            "avg_leadership": round(avg_leadership, 1),
+            "avg_stress_resilience": round(avg_stress, 1),
+            "avg_communication": round(avg_communication, 1),
+            "avg_learnability": round(avg_learnability, 1),
+            "avg_responsibility": round(avg_responsibility, 1),
+            "burnout_risk_distribution": burnout_counts
+        }
+    }
 
 # ---------- Запуск ----------
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
-
-# ---------- Team Assessment ----------
-@app.get("/api/employee/team")
-async def team_assessment(api_key: str = Depends(verify_api_key)):
-    from core.db import get_employee_assessments
-    assessments = get_employee_assessments()
-    
-    if not assessments:
-        return {"status": "success", "assessments": [], "summary": "Нет оценённых сотрудников"}
-    
-    # Подсчёт средних
-    total = len(assessments)
-    avg_leadership = sum(a.get("leadership_score", 0) for a in assessments) / total
-    avg_stress = sum(a.get("stress_resilience_score", 0) for a in assessments) / total
-    avg_communication = sum(a.get("communication_score", 0) for a in assessments) / total
-    avg_learnability = sum(a.get("learnability_score", 0) for a in assessments) / total
-    avg_responsibility = sum(a.get("responsibility_score", 0) for a in assessments) / total
-    
-    # Риски выгорания
-    burnout_counts = {"низкий": 0, "средний": 0, "высокий": 0}
-    for a in assessments:
-        risk = a.get("burnout_risk", "неизвестен").lower()
-        if risk in burnout_counts:
-            burnout_counts[risk] += 1
-    
-    return {
-        "status": "success",
-        "assessments": assessments,
-        "summary": {
-            "total_employees": total,
-            "avg_leadership": round(avg_leadership, 1),
-            "avg_stress_resilience": round(avg_stress, 1),
-            "avg_communication": round(avg_communication, 1),
-            "avg_learnability": round(avg_learnability, 1),
-            "avg_responsibility": round(avg_responsibility, 1),
-            "burnout_risk_distribution": burnout_counts
-        }
-    }
-
-# ---------- Team Assessment ----------
-@app.get("/api/employee/team")
-async def team_assessment(api_key: str = Depends(verify_api_key)):
-    from core.db import get_employee_assessments
-    assessments = get_employee_assessments()
-    
-    if not assessments:
-        return {"status": "success", "assessments": [], "summary": {"total_employees": 0}}
-    
-    total = len(assessments)
-    avg_leadership = sum(a.get("leadership_score", 0) for a in assessments) / total
-    avg_stress = sum(a.get("stress_resilience_score", 0) for a in assessments) / total
-    avg_communication = sum(a.get("communication_score", 0) for a in assessments) / total
-    avg_learnability = sum(a.get("learnability_score", 0) for a in assessments) / total
-    avg_responsibility = sum(a.get("responsibility_score", 0) for a in assessments) / total
-    
-    burnout_counts = {"низкий": 0, "средний": 0, "высокий": 0}
-    for a in assessments:
-        risk = a.get("burnout_risk", "неизвестен").lower()
-        if risk in burnout_counts:
-            burnout_counts[risk] += 1
-    
-    return {
-        "status": "success",
-        "assessments": assessments,
-        "summary": {
-            "total_employees": total,
-            "avg_leadership": round(avg_leadership, 1),
-            "avg_stress_resilience": round(avg_stress, 1),
-            "avg_communication": round(avg_communication, 1),
-            "avg_learnability": round(avg_learnability, 1),
-            "avg_responsibility": round(avg_responsibility, 1),
-            "burnout_risk_distribution": burnout_counts
-        }
-    }
