@@ -1,3 +1,4 @@
+from fastapi.middleware.cors import CORSMiddleware
 import os
 import tempfile
 from fastapi import FastAPI, UploadFile, File, HTTPException, Security, Depends
@@ -22,6 +23,14 @@ async def verify_api_key(api_key: str = Security(api_key_header)):
     return api_key
 
 app = FastAPI(title="HR Absolute API", version="0.1.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # ---------- Модели ----------
 class AnalyzeCandidateRequest(BaseModel):
