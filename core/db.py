@@ -310,3 +310,61 @@ def delete_volunteer_vacancy(vacancy_id: int) -> bool:
         return cursor.rowcount > 0
 
 init_volunteer_table()
+
+# ---------- Employee Assessments ----------
+def init_employee_assessments_table():
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS employee_assessments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                employee_name TEXT NOT NULL,
+                position TEXT,
+                assessment_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                leadership_score INTEGER,
+                stress_resilience_score INTEGER,
+                communication_score INTEGER,
+                learnability_score INTEGER,
+                responsibility_score INTEGER,
+                strengths TEXT,
+                growth_points TEXT,
+                recommendations TEXT,
+                burnout_risk TEXT,
+                raw_text TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+def save_employee_assessment(data: dict) -> int:
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.execute("""
+            INSERT INTO employee_assessments (
+                employee_name, position, leadership_score, stress_resilience_score,
+                communication_score, learnability_score, responsibility_score,
+                strengths, growth_points, recommendations, burnout_risk, raw_text
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            data.get("employee_name"),
+            data.get("position"),
+            data.get("leadership_score"),
+            data.get("stress_resilience_score"),
+            data.get("communication_score"),
+            data.get("learnability_score"),
+            data.get("responsibility_score"),
+            data.get("strengths"),
+            data.get("growth_points"),
+            data.get("recommendations"),
+            data.get("burnout_risk"),
+            data.get("raw_text")
+        ))
+        return cursor.lastrowid
+
+def get_employee_assessments(employee_name: str = None):
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        if employee_name:
+            rows = conn.execute("SELECT * FROM employee_assessments WHERE employee_name = ? ORDER BY created_at DESC", (employee_name,)).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM employee_assessments ORDER BY created_at DESC").fetchall()
+    return [dict(row) for row in rows]
+
+init_employee_assessments_table()

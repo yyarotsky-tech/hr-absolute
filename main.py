@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 from core.transcriber import transcribe_audio
 from core.analyzers import analyze_candidate, analyze_workforce
 from core.file_parser import extract_text_from_file
-from core.db import save_candidate, get_all_candidates, get_candidate, search_candidates, delete_candidate, save_rating, get_industry_avg
+from core.db import save_candidate, get_all_candidates, get_candidate, search_candidates, delete_candidate, save_rating, get_industry_avg, add_vacancy, get_all_vacancies, delete_vacancy, add_volunteer_vacancy, get_all_volunteer_vacancies, delete_volunteer_vacancy, save_employee_assessment
 
 load_dotenv()
 
@@ -94,7 +94,48 @@ class BenchmarkCompareRequest(BaseModel):
     time_to_hire: int
     avg_salary: int
     additional_question: Optional[str] = None
-    additional_question: Optional[str] = None
+
+class VacancyRequest(BaseModel):
+    title: str
+    description: Optional[str] = None
+    requirements: Optional[str] = None
+    salary_min: Optional[int] = None
+    salary_max: Optional[int] = None
+
+class VacancyResponse(BaseModel):
+    id: int
+    title: str
+    description: Optional[str] = None
+    requirements: Optional[str] = None
+    salary_min: Optional[int] = None
+    salary_max: Optional[int] = None
+    status: str
+    created_at: str
+
+class VolunteerRequest(BaseModel):
+    title: str
+    description: Optional[str] = None
+    requirements: Optional[str] = None
+    organization: Optional[str] = None
+    contact: Optional[str] = None
+
+class VolunteerResponse(BaseModel):
+    id: int
+    title: str
+    description: Optional[str] = None
+    requirements: Optional[str] = None
+    organization: Optional[str] = None
+    contact: Optional[str] = None
+    created_at: str
+
+class EmployeeAssessmentRequest(BaseModel):
+    employee_name: str
+    position: Optional[str] = None
+    raw_text: str
+
+class EmployeeAssessmentResponse(BaseModel):
+    status: str
+    assessment: Dict[str, Any]
 
 # ---------- Корневые эндпоинты ----------
 @app.get("/")
@@ -256,26 +297,8 @@ async def compare_benchmark(request: BenchmarkCompareRequest, api_key: str = Dep
 2. Оцени риски.
 3. Дай рекомендации по улучшению.
 """
-
-    # Добавляем дополнительный вопрос, если он есть
     if request.additional_question:
-        prompt += f"""
-
-ДОПОЛНИТЕЛЬНЫЙ ВОПРОС ПОЛЬЗОВАТЕЛЯ:
-{request.additional_question}
-
-Пожалуйста, ответь на этот вопрос в дополнение к основному анализу.
-"""
-
-    # Добавляем дополнительный вопрос, если он есть
-    if request.additional_question:
-        prompt += f"""
-
-ДОПОЛНИТЕЛЬНЫЙ ВОПРОС ПОЛЬЗОВАТЕЛЯ:
-{request.additional_question}
-
-Пожалуйста, ответь на этот вопрос в дополнение к основному анализу.
-"""
+        prompt += f"\n\nДОПОЛНИТЕЛЬНЫЙ ВОПРОС ПОЛЬЗОВАТЕЛЯ:\n{request.additional_question}\n\nПожалуйста, ответь на этот вопрос в дополнение к основному анализу."
 
     analysis = ask_llm(prompt)
     
@@ -311,26 +334,8 @@ async def get_rosstat_construction(api_key: str = Depends(verify_api_key)):
         }
 
 # ---------- Вакансии ----------
-class VacancyRequest(BaseModel):
-    title: str
-    description: Optional[str] = None
-    requirements: Optional[str] = None
-    salary_min: Optional[int] = None
-    salary_max: Optional[int] = None
-
-class VacancyResponse(BaseModel):
-    id: int
-    title: str
-    description: Optional[str] = None
-    requirements: Optional[str] = None
-    salary_min: Optional[int] = None
-    salary_max: Optional[int] = None
-    status: str
-    created_at: str
-
 @app.post("/api/vacancies/add", response_model=VacancyResponse)
 async def add_vacancy(request: VacancyRequest, api_key: str = Depends(verify_api_key)):
-    from core.db import add_vacancy
     vid = add_vacancy(request.title, request.description, request.requirements, request.salary_min, request.salary_max)
     return VacancyResponse(id=vid, title=request.title, description=request.description, 
                           requirements=request.requirements, salary_min=request.salary_min, 
@@ -338,14 +343,30 @@ async def add_vacancy(request: VacancyRequest, api_key: str = Depends(verify_api
 
 @app.get("/api/vacancies", response_model=List[VacancyResponse])
 async def list_vacancies(api_key: str = Depends(verify_api_key)):
-    from core.db import get_all_vacancies
     return get_all_vacancies()
 
 @app.delete("/api/vacancies/{vacancy_id}")
 async def delete_vacancy(vacancy_id: int, api_key: str = Depends(verify_api_key)):
-    from core.db import delete_vacancy
     if not delete_vacancy(vacancy_id):
         raise HTTPException(status_code=404, detail="Vacancy not found")
+    return {"status": "deleted"}
+
+# ---------- Волонтёрство ----------
+@app.post("/api/volunteer/add", response_model=VolunteerResponse)
+async def add_volunteer(request: VolunteerRequest, api_key: str = Depends(verify_api_key)):
+    vid = add_volunteer_vacancy(request.title, request.description, request.requirements, request.organization, request.contact)
+    return VolunteerResponse(id=vid, title=request.title, description=request.description,
+                           requirements=request.requirements, organization=request.organization,
+                           contact=request.contact, created_at="")
+
+@app.get("/api/volunteer", response_model=List[VolunteerResponse])
+async def list_volunteer(api_key: str = Depends(verify_api_key)):
+    return get_all_volunteer_vacancies()
+
+@app.delete("/api/volunteer/{vacancy_id}")
+async def delete_volunteer(vacancy_id: int, api_key: str = Depends(verify_api_key)):
+    if not delete_volunteer_vacancy(vacancy_id):
+        raise HTTPException(status_code=404, detail="Volunteer vacancy not found")
     return {"status": "deleted"}
 
 # ---------- Матчинг ----------
@@ -366,7 +387,7 @@ class MatchResponse(BaseModel):
 
 @app.post("/api/match", response_model=List[MatchResponse])
 async def run_matching(request: MatchRequest, api_key: str = Depends(verify_api_key)):
-    from core.db import get_all_candidates, get_all_vacancies, get_candidate, get_vacancy
+    from core.db import get_all_candidates, get_all_vacancies
     from core.llm_client import ask_llm
     import json
     
@@ -407,7 +428,6 @@ async def run_matching(request: MatchRequest, api_key: str = Depends(verify_api_
 """
             try:
                 response = ask_llm(prompt)
-                # Парсим JSON из ответа
                 result = json.loads(response)
             except Exception as e:
                 result = {
@@ -432,179 +452,71 @@ async def run_matching(request: MatchRequest, api_key: str = Depends(verify_api_
     
     return results
 
+# ---------- Оценка сотрудников ----------
+@app.post("/api/employee/assess", response_model=EmployeeAssessmentResponse)
+async def assess_employee(request: EmployeeAssessmentRequest, api_key: str = Depends(verify_api_key)):
+    from core.llm_client import ask_llm
+    import json
+    
+    prompt = f"""
+Ты — HR-эксперт. Оцени сотрудника по следующим параметрам на основе текста.
+
+Данные о сотруднике:
+Имя: {request.employee_name}
+Должность: {request.position or "не указана"}
+Текст: {request.raw_text}
+
+Оцени каждый параметр от 1 до 10 (только число):
+- leadership_score
+- stress_resilience_score
+- communication_score
+- learnability_score
+- responsibility_score
+
+Также укажи:
+- strengths (строка, 3 сильные стороны через запятую)
+- growth_points (строка, 3 зоны роста через запятую)
+- recommendations (строка, рекомендации)
+- burnout_risk (одно слово: низкий, средний или высокий)
+
+Верни ТОЛЬКО JSON без пояснений. Пример:
+{{"leadership_score": 6, "stress_resilience_score": 4, "communication_score": 8, "learnability_score": 9, "responsibility_score": 7, "strengths": "коммуникабельность, обучаемость, ответственность", "growth_points": "лидерство, стрессоустойчивость", "recommendations": "курс по управлению стрессом", "burnout_risk": "средний"}}
+"""
+    try:
+        response = ask_llm(prompt)
+        result = json.loads(response)
+    except Exception as e:
+        result = {
+            "leadership_score": 5,
+            "stress_resilience_score": 5,
+            "communication_score": 5,
+            "learnability_score": 5,
+            "responsibility_score": 5,
+            "strengths": "Анализ не удался",
+            "growth_points": "Попробуйте позже",
+            "recommendations": "Требуется ручная проверка",
+            "burnout_risk": "неизвестен"
+        }
+    
+    assessment_data = {
+        "employee_name": request.employee_name,
+        "position": request.position,
+        "leadership_score": result.get("leadership_score"),
+        "stress_resilience_score": result.get("stress_resilience_score"),
+        "communication_score": result.get("communication_score"),
+        "learnability_score": result.get("learnability_score"),
+        "responsibility_score": result.get("responsibility_score"),
+        "strengths": result.get("strengths"),
+        "growth_points": result.get("growth_points"),
+        "recommendations": result.get("recommendations"),
+        "burnout_risk": result.get("burnout_risk"),
+        "raw_text": request.raw_text
+    }
+    save_employee_assessment(assessment_data)
+    
+    return {"status": "success", "assessment": result}
+
 # ---------- Запуск ----------
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
-
-# ---------- Vacancies ----------
-class VacancyRequest(BaseModel):
-    title: str
-    description: Optional[str] = None
-    requirements: Optional[str] = None
-    salary_min: Optional[int] = None
-    salary_max: Optional[int] = None
-
-class VacancyResponse(BaseModel):
-    id: int
-    title: str
-    description: Optional[str] = None
-    requirements: Optional[str] = None
-    salary_min: Optional[int] = None
-    salary_max: Optional[int] = None
-    status: str
-    created_at: str
-
-@app.post("/api/vacancies/add", response_model=VacancyResponse)
-async def add_vacancy(request: VacancyRequest, api_key: str = Depends(verify_api_key)):
-    from core.db import add_vacancy
-    vid = add_vacancy(request.title, request.description, request.requirements, request.salary_min, request.salary_max)
-    return VacancyResponse(
-        id=vid, 
-        title=request.title, 
-        description=request.description, 
-        requirements=request.requirements, 
-        salary_min=request.salary_min, 
-        salary_max=request.salary_max, 
-        status="active", 
-        created_at=""
-    )
-
-@app.get("/api/vacancies", response_model=List[VacancyResponse])
-async def list_vacancies(api_key: str = Depends(verify_api_key)):
-    from core.db import get_all_vacancies
-    return get_all_vacancies()
-
-@app.delete("/api/vacancies/{vacancy_id}")
-async def delete_vacancy(vacancy_id: int, api_key: str = Depends(verify_api_key)):
-    from core.db import delete_vacancy
-    if not delete_vacancy(vacancy_id):
-        raise HTTPException(status_code=404, detail="Vacancy not found")
-    return {"status": "deleted"}
-
-# ---------- Матчинг ----------
-class MatchRequest(BaseModel):
-    candidate_id: Optional[int] = None
-    vacancy_id: Optional[int] = None
-
-class MatchResponse(BaseModel):
-    candidate_id: int
-    candidate_name: str
-    vacancy_id: int
-    vacancy_title: str
-    score: int
-    strengths: str
-    growth_points: str
-    success_scenario: str
-    alternative_roles: str
-
-@app.post("/api/match", response_model=List[MatchResponse])
-async def run_matching(request: MatchRequest, api_key: str = Depends(verify_api_key)):
-    from core.db import get_all_candidates, get_all_vacancies, get_candidate, get_vacancy, save_match, clear_matches
-    from core.llm_client import ask_llm
-    
-    candidates = get_all_candidates()
-    vacancies = get_all_vacancies(status="active")
-    
-    if request.candidate_id:
-        candidates = [c for c in candidates if c["id"] == request.candidate_id]
-    if request.vacancy_id:
-        vacancies = [v for v in vacancies if v["id"] == request.vacancy_id]
-    
-    # Очищаем старые результаты для этих пар
-    clear_matches()
-    
-    results = []
-    for candidate in candidates:
-        for vacancy in vacancies:
-            # Формируем промпт для DeepSeek
-            prompt = f"""
-Проанализируй соответствие кандидата вакансии.
-
-Данные кандидата:
-- Текст из аудио/резюме: {candidate.get('transcribed_snippet', '')} {candidate.get('resume_snippet', '')}
-- Вакансия: {vacancy.get('title')} - {vacancy.get('description', '')} {vacancy.get('requirements', '')}
-
-Твоя задача:
-1. Оцени соответствие в процентах (0-100).
-2. Напиши 2-3 сильные стороны кандидата для этой вакансии.
-3. Напиши 2-3 точки роста (чего не хватает).
-4. Предложи сценарий успеха (как кандидат может быть полезен).
-5. Если соответствие <50%, предложи альтернативные роли.
-
-Ответ строго в формате JSON:
-{{
-    "score": 85,
-    "strengths": "Опыт Python 5 лет, знание FastAPI",
-    "growth_points": "Нет опыта с Docker",
-    "success_scenario": "Пригласить на собеседование",
-    "alternative_roles": "Мидл разработчик, технический писатель"
-}}
-"""
-            try:
-                response = ask_llm(prompt)
-                # Парсим JSON из ответа
-                import json
-                result = json.loads(response)
-            except Exception as e:
-                result = {
-                    "score": 50,
-                    "strengths": "Анализ не удался",
-                    "growth_points": "Попробуйте позже",
-                    "success_scenario": "Требуется ручная проверка",
-                    "alternative_roles": ""
-                }
-            
-            save_match(candidate["id"], vacancy["id"], result)
-            
-            results.append({
-                "candidate_id": candidate["id"],
-                "candidate_name": candidate["name"],
-                "vacancy_id": vacancy["id"],
-                "vacancy_title": vacancy["title"],
-                **result
-            })
-    
-    return results
-
-# ---------- Volunteer Vacancies ----------
-class VolunteerRequest(BaseModel):
-    title: str
-    description: Optional[str] = None
-    requirements: Optional[str] = None
-    organization: Optional[str] = None
-    contact: Optional[str] = None
-
-class VolunteerResponse(BaseModel):
-    id: int
-    title: str
-    description: Optional[str] = None
-    requirements: Optional[str] = None
-    organization: Optional[str] = None
-    contact: Optional[str] = None
-    created_at: str
-
-@app.post("/api/volunteer/add", response_model=VolunteerResponse)
-async def add_volunteer(request: VolunteerRequest, api_key: str = Depends(verify_api_key)):
-    from core.db import add_volunteer_vacancy
-    vid = add_volunteer_vacancy(
-        request.title, request.description, request.requirements,
-        request.organization, request.contact
-    )
-    return VolunteerResponse(
-        id=vid, title=request.title, description=request.description,
-        requirements=request.requirements, organization=request.organization,
-        contact=request.contact, created_at=""
-    )
-
-@app.get("/api/volunteer", response_model=List[VolunteerResponse])
-async def list_volunteer(api_key: str = Depends(verify_api_key)):
-    from core.db import get_all_volunteer_vacancies
-    return get_all_volunteer_vacancies()
-
-@app.delete("/api/volunteer/{vacancy_id}")
-async def delete_volunteer(vacancy_id: int, api_key: str = Depends(verify_api_key)):
-    from core.db import delete_volunteer_vacancy
-    if not delete_volunteer_vacancy(vacancy_id):
-        raise HTTPException(status_code=404, detail="Volunteer vacancy not found")
-    return {"status": "deleted"}
