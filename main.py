@@ -1,3 +1,4 @@
+import inspect
 from fastapi.middleware.cors import CORSMiddleware
 import os
 import tempfile
@@ -361,7 +362,7 @@ async def get_rosstat_construction(api_key: str = Depends(verify_api_key)):
 # ---------- Вакансии ----------
 @app.post("/api/vacancies/add", response_model=VacancyResponse)
 async def add_vacancy(request: VacancyRequest, api_key: str = Depends(verify_api_key)):
-    vid = add_vacancy(request.title, request.description, request.requirements, request.salary_min, request.salary_max)
+    vid = add_vacancy(request.dict()) if len(inspect.signature(add_vacancy).parameters) == 1 else add_vacancy(request.title, request.description, request.requirements, request.salary_min, request.salary_max)
     return VacancyResponse(id=vid, title=request.title, description=request.description,
                           requirements=request.requirements, salary_min=request.salary_min,
                           salary_max=request.salary_max, status="active", created_at="")
