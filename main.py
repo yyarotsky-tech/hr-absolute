@@ -520,3 +520,77 @@ async def assess_employee(request: EmployeeAssessmentRequest, api_key: str = Dep
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+# ---------- Team Assessment ----------
+@app.get("/api/employee/team")
+async def team_assessment(api_key: str = Depends(verify_api_key)):
+    from core.db import get_employee_assessments
+    assessments = get_employee_assessments()
+    
+    if not assessments:
+        return {"status": "success", "assessments": [], "summary": "Нет оценённых сотрудников"}
+    
+    # Подсчёт средних
+    total = len(assessments)
+    avg_leadership = sum(a.get("leadership_score", 0) for a in assessments) / total
+    avg_stress = sum(a.get("stress_resilience_score", 0) for a in assessments) / total
+    avg_communication = sum(a.get("communication_score", 0) for a in assessments) / total
+    avg_learnability = sum(a.get("learnability_score", 0) for a in assessments) / total
+    avg_responsibility = sum(a.get("responsibility_score", 0) for a in assessments) / total
+    
+    # Риски выгорания
+    burnout_counts = {"низкий": 0, "средний": 0, "высокий": 0}
+    for a in assessments:
+        risk = a.get("burnout_risk", "неизвестен").lower()
+        if risk in burnout_counts:
+            burnout_counts[risk] += 1
+    
+    return {
+        "status": "success",
+        "assessments": assessments,
+        "summary": {
+            "total_employees": total,
+            "avg_leadership": round(avg_leadership, 1),
+            "avg_stress_resilience": round(avg_stress, 1),
+            "avg_communication": round(avg_communication, 1),
+            "avg_learnability": round(avg_learnability, 1),
+            "avg_responsibility": round(avg_responsibility, 1),
+            "burnout_risk_distribution": burnout_counts
+        }
+    }
+
+# ---------- Team Assessment ----------
+@app.get("/api/employee/team")
+async def team_assessment(api_key: str = Depends(verify_api_key)):
+    from core.db import get_employee_assessments
+    assessments = get_employee_assessments()
+    
+    if not assessments:
+        return {"status": "success", "assessments": [], "summary": {"total_employees": 0}}
+    
+    total = len(assessments)
+    avg_leadership = sum(a.get("leadership_score", 0) for a in assessments) / total
+    avg_stress = sum(a.get("stress_resilience_score", 0) for a in assessments) / total
+    avg_communication = sum(a.get("communication_score", 0) for a in assessments) / total
+    avg_learnability = sum(a.get("learnability_score", 0) for a in assessments) / total
+    avg_responsibility = sum(a.get("responsibility_score", 0) for a in assessments) / total
+    
+    burnout_counts = {"низкий": 0, "средний": 0, "высокий": 0}
+    for a in assessments:
+        risk = a.get("burnout_risk", "неизвестен").lower()
+        if risk in burnout_counts:
+            burnout_counts[risk] += 1
+    
+    return {
+        "status": "success",
+        "assessments": assessments,
+        "summary": {
+            "total_employees": total,
+            "avg_leadership": round(avg_leadership, 1),
+            "avg_stress_resilience": round(avg_stress, 1),
+            "avg_communication": round(avg_communication, 1),
+            "avg_learnability": round(avg_learnability, 1),
+            "avg_responsibility": round(avg_responsibility, 1),
+            "burnout_risk_distribution": burnout_counts
+        }
+    }
