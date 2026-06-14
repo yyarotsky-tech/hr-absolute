@@ -1,3 +1,4 @@
+from datetime import datetime
 import inspect
 from fastapi.middleware.cors import CORSMiddleware
 import os
@@ -67,7 +68,7 @@ class CandidateSaveRequest(BaseModel):
 class CandidateResponse(BaseModel):
     id: int
     name: str
-    created_at: str
+    created_at: datetime
     transcribed_snippet: Optional[str] = None
     vacancy_snippet: Optional[str] = None
     resume_snippet: Optional[str] = None
@@ -75,7 +76,7 @@ class CandidateResponse(BaseModel):
 class CandidateDetailResponse(BaseModel):
     id: int
     name: str
-    created_at: str
+    created_at: datetime
     transcribed_text: Optional[str] = None
     vacancy_text: Optional[str] = None
     resume_text: Optional[str] = None
@@ -121,7 +122,7 @@ class VacancyResponse(BaseModel):
     salary_min: Optional[int] = None
     salary_max: Optional[int] = None
     status: str
-    created_at: str
+    created_at: datetime
 
 class VacancyUpdateRequest(BaseModel):
     title: Optional[str] = None
@@ -145,7 +146,7 @@ class VolunteerResponse(BaseModel):
     requirements: Optional[str] = None
     organization: Optional[str] = None
     contact: Optional[str] = None
-    created_at: str
+    created_at: datetime
 
 class EmployeeAssessmentRequest(BaseModel):
     employee_name: str
