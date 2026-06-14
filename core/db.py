@@ -1,3 +1,5 @@
+from .database import SessionLocal
+from .models import Vacancy, Candidate
 from sqlalchemy.orm import Session
 from .database import SessionLocal
 from .models import Vacancy, Candidate

@@ -367,7 +367,7 @@ async def add_vacancy_endpoint(request: VacancyRequest, api_key: str = Depends(v
                           requirements=request.requirements, salary_min=request.salary_min,
                           salary_max=request.salary_max, status="active", created_at="")
 
-@app.get("/api/vacancies", response_model=List[VacancyResponse])
+@app.get("/api/vacancies")
 async def list_vacancies(api_key: str = Depends(verify_api_key)):
     return get_all_vacancies()
 
