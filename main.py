@@ -2,7 +2,7 @@ import inspect
 from fastapi.middleware.cors import CORSMiddleware
 import os
 import tempfile
-from fastapi import FastAPI, UploadFile, File, HTTPException, Security, Depends
+from fastapi import FastAPI, UploadFile, File, HTTPException, Security, Depends, Query
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 from core.transcriber import transcribe_audio
 from core.analyzers import analyze_candidate, analyze_workforce
 from core.file_parser import extract_text_from_file
-from core.db import save_candidate, get_all_candidates, get_candidate, search_candidates, delete_candidate, save_rating, get_industry_avg, add_vacancy, get_all_vacancies, delete_vacancy, add_volunteer_vacancy, get_all_volunteer_vacancies, delete_volunteer_vacancy, save_employee_assessment
+from core.db import save_candidate, get_all_candidates, get_candidate, search_candidates, delete_candidate, save_rating, get_industry_avg, add_vacancy, get_all_vacancies, delete_vacancy, add_volunteer_vacancy, get_all_volunteer_vacancies, delete_volunteer_vacancy, save_employee_assessment, get_all_vacancies_paginated
 
 load_dotenv()
 
@@ -390,6 +390,15 @@ async def update_vacancy(vacancy_id: int, request: VacancyUpdateRequest, api_key
     if not updated:
         raise HTTPException(status_code=500, detail="Failed to update vacancy")
     return {"status": "updated", "id": vacancy_id}
+
+@app.get("/api/vacancies/paginated")
+async def list_vacancies_paginated(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(10, ge=1, le=100),
+    status: Optional[str] = None,
+    api_key: str = Depends(verify_api_key)
+):
+    return get_all_vacancies_paginated(skip=skip, limit=limit, status=status)
 
 # ---------- Волонтёрство ----------
 @app.post("/api/volunteer/add", response_model=VolunteerResponse)

@@ -300,3 +300,52 @@ def delete_volunteer_vacancy(vacancy_id):
     deleted = cursor.rowcount > 0
     conn.close()
     return deleted
+
+def get_all_vacancies_paginated(skip: int, limit: int, status=None):
+    """Возвращает словарь {'items': [...], 'total': int} для пагинации."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    # ---- Подсчёт общего количества записей ----
+    if status:
+        if DATABASE_URL and DATABASE_URL.startswith("postgresql"):
+            cursor.execute("SELECT COUNT(*) FROM vacancies WHERE status = %s", (status,))
+        else:
+            cursor.execute("SELECT COUNT(*) FROM vacancies WHERE status = ?", (status,))
+    else:
+        cursor.execute("SELECT COUNT(*) FROM vacancies")
+    total = cursor.fetchone()[0]
+
+    # ---- Выборка нужной страницы ----
+    if status:
+        if DATABASE_URL and DATABASE_URL.startswith("postgresql"):
+            cursor.execute("""
+                SELECT * FROM vacancies
+                WHERE status = %s
+                ORDER BY created_at DESC
+                OFFSET %s LIMIT %s
+            """, (status, skip, limit))
+        else:
+            cursor.execute("""
+                SELECT * FROM vacancies
+                WHERE status = ?
+                ORDER BY created_at DESC
+                LIMIT ? OFFSET ?
+            """, (status, limit, skip))
+    else:
+        if DATABASE_URL and DATABASE_URL.startswith("postgresql"):
+            cursor.execute("""
+                SELECT * FROM vacancies
+                ORDER BY created_at DESC
+                OFFSET %s LIMIT %s
+            """, (skip, limit))
+        else:
+            cursor.execute("""
+                SELECT * FROM vacancies
+                ORDER BY created_at DESC
+                LIMIT ? OFFSET ?
+            """, (limit, skip))
+
+    rows = cursor.fetchall()
+    conn.close()
+    items = [dict(row) for row in rows]
+    return {"items": items, "total": total}
