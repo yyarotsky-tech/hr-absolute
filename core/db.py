@@ -313,7 +313,7 @@ def get_all_vacancies_paginated(skip: int, limit: int, status=None):
             cursor.execute("SELECT COUNT(*) FROM vacancies WHERE status = ?", (status,))
     else:
         cursor.execute("SELECT COUNT(*) FROM vacancies")
-    total = cursor.fetchone()[0]
+    total = cursor.fetchone()["count"] if DATABASE_URL and DATABASE_URL.startswith("postgresql") else cursor.fetchone()[0]
 
     # ---- Выборка нужной страницы ----
     if status:
