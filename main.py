@@ -3,7 +3,7 @@ import inspect
 from fastapi.middleware.cors import CORSMiddleware
 import os
 import tempfile
-from fastapi import FastAPI, UploadFile, File, HTTPException, Security, Depends, Query
+from fastapi import FastAPI, UploadFile, File as FastAPIFile, HTTPException, Security, Depends, Query
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
@@ -11,8 +11,14 @@ from dotenv import load_dotenv
 
 from core.transcriber import transcribe_audio
 from core.analyzers import analyze_candidate, analyze_workforce
-from core.file_parser import extract_text_from_file
-from core.db import save_candidate, get_all_candidates, get_candidate, search_candidates, delete_candidate, save_rating, get_industry_avg, add_vacancy, get_all_vacancies, delete_vacancy, add_volunteer_vacancy, get_all_volunteer_vacancies, delete_volunteer_vacancy, save_employee_assessment, get_all_vacancies_paginated
+from core.file_parser import extract_text_from_file, extract_text_from_bytes
+from core.db import (
+    save_candidate, get_all_candidates, get_candidate, search_candidates,
+    delete_candidate, save_rating, get_industry_avg, add_vacancy,
+    get_all_vacancies, delete_vacancy, add_volunteer_vacancy,
+    get_all_volunteer_vacancies, delete_volunteer_vacancy,
+    save_employee_assessment, get_employee_assessments, get_all_vacancies_paginated
+)
 
 load_dotenv()
 
@@ -184,12 +190,12 @@ async def check_key(api_key: str = Depends(verify_api_key)):
 # ---------- Транскрипция ----------
 @app.post("/api/transcribe", response_model=TranscribeResponse)
 async def transcribe_endpoint(
-    audio: UploadFile = File(...),
+    audio: UploadFile = FastAPIFile(...),
     language: str = "ru",
     api_key: str = Depends(verify_api_key)
 ):
     suffix = os.path.splitext(audio.filename)[1] or ".mp3"
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+    with tempfile.NamedTemporaryFastAPIFile(suffix=suffix, delete=False) as tmp:
         content = await audio.read()
         if not content:
             raise HTTPException(status_code=400, detail="Empty audio file")
@@ -574,6 +580,36 @@ async def team_assessment(api_key: str = Depends(verify_api_key)):
             "burnout_risk_distribution": burnout_counts
         }
     }
+
+@app.post("/api/upload/resume")
+async def upload_resume(
+    file: UploadFile = FastAPIFile(...),
+    api_key: str = Depends(verify_api_key)
+):
+    """
+    Загрузить файл резюме (PDF, DOCX, TXT). Возвращает извлечённый текст.
+    """
+    try:
+        contents = await file.read()
+        text = extract_text_from_bytes(contents, file.filename)
+        return {"filename": file.filename, "text": text, "status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Ошибка обработки файла: {str(e)}")
+
+@app.post("/api/upload/vacancy")
+async def upload_vacancy(
+    file: UploadFile = FastAPIFile(...),
+    api_key: str = Depends(verify_api_key)
+):
+    """
+    Загрузить файл с описанием вакансии (PDF, DOCX, TXT). Возвращает извлечённый текст.
+    """
+    try:
+        contents = await file.read()
+        text = extract_text_from_bytes(contents, file.filename)
+        return {"filename": file.filename, "text": text, "status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Ошибка обработки файла: {str(e)}")
 
 # ---------- Запуск ----------
 if __name__ == "__main__":
