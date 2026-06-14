@@ -362,7 +362,7 @@ async def get_rosstat_construction(api_key: str = Depends(verify_api_key)):
 # ---------- Вакансии ----------
 @app.post("/api/vacancies/add", response_model=VacancyResponse)
 async def add_vacancy(request: VacancyRequest, api_key: str = Depends(verify_api_key)):
-    vid = await add_vacancy(request)
+    vid = await db_add_vacancy(request)
     return VacancyResponse(id=vid, title=request.title, description=request.description,
                           requirements=request.requirements, salary_min=request.salary_min,
                           salary_max=request.salary_max, status="active", created_at="")
