@@ -100,10 +100,42 @@ def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+    if DATABASE_URL and DATABASE_URL.startswith("postgresql"):
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS candidate_reports (
+                id SERIAL PRIMARY KEY,
+                candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+                report_type VARCHAR(50) NOT NULL,  -- 'full_analysis', 'summary', 'questions', 'match'
+                input_data TEXT,                   -- JSON или текст входных данных (например, текст вакансии)
+                report TEXT NOT NULL,               -- JSON или текст отчёта
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+    else:
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS candidate_reports (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                candidate_id INTEGER NOT NULL,
+                report_type TEXT NOT NULL,
+                input_data TEXT,
+                report TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (candidate_id) REFERENCES candidates (id) ON DELETE CASCADE
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS candidate_reports (
+                id SERIAL PRIMARY KEY,
+                candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+                report_type VARCHAR(50) NOT NULL,
+                input_data TEXT,
+                report TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
     conn.commit()
     conn.close()
-
-init_db()
 
 def save_candidate(name, data):
     conn = get_db_connection()
@@ -349,3 +381,123 @@ def get_all_vacancies_paginated(skip: int, limit: int, status=None):
     conn.close()
     items = [dict(row) for row in rows]
     return {"items": items, "total": total}
+
+def save_candidate_report(candidate_id: int, report_type: str, input_data: dict, report: dict) -> int:
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    import json
+    input_json = json.dumps(input_data, ensure_ascii=False) if input_data else None
+    report_json = json.dumps(report, ensure_ascii=False)
+    if DATABASE_URL and DATABASE_URL.startswith("postgresql"):
+        cursor.execute("""
+            INSERT INTO candidate_reports (candidate_id, report_type, input_data, report)
+            VALUES (%s, %s, %s, %s) RETURNING id
+        """, (candidate_id, report_type, input_json, report_json))
+        report_id = cursor.fetchone()['id']
+    else:
+        cursor.execute("""
+            INSERT INTO candidate_reports (candidate_id, report_type, input_data, report)
+            VALUES (?, ?, ?, ?)
+        """, (candidate_id, report_type, input_json, report_json))
+        report_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return report_id
+
+def get_candidate_reports(candidate_id: int, limit: int = 10) -> list:
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    import json
+    if DATABASE_URL and DATABASE_URL.startswith("postgresql"):
+        cursor.execute("""
+            SELECT id, report_type, input_data, report, created_at
+            FROM candidate_reports
+            WHERE candidate_id = %s
+            ORDER BY created_at DESC
+            LIMIT %s
+        """, (candidate_id, limit))
+    else:
+        cursor.execute("""
+            SELECT id, report_type, input_data, report, created_at
+            FROM candidate_reports
+            WHERE candidate_id = ?
+            ORDER BY created_at DESC
+            LIMIT ?
+        """, (candidate_id, limit))
+    rows = cursor.fetchall()
+    conn.close()
+    result = []
+    for row in rows:
+        item = dict(row)
+        if item.get('input_data'):
+            try:
+                item['input_data'] = json.loads(item['input_data'])
+            except:
+                pass
+        if item.get('report'):
+            try:
+                item['report'] = json.loads(item['report'])
+            except:
+                pass
+        result.append(item)
+    return result
+
+def save_candidate_report(candidate_id: int, report_type: str, input_data: dict, report: dict) -> int:
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    import json
+    input_json = json.dumps(input_data, ensure_ascii=False) if input_data else None
+    report_json = json.dumps(report, ensure_ascii=False)
+    if DATABASE_URL and DATABASE_URL.startswith("postgresql"):
+        cursor.execute("""
+            INSERT INTO candidate_reports (candidate_id, report_type, input_data, report)
+            VALUES (%s, %s, %s, %s) RETURNING id
+        """, (candidate_id, report_type, input_json, report_json))
+        report_id = cursor.fetchone()['id']
+    else:
+        cursor.execute("""
+            INSERT INTO candidate_reports (candidate_id, report_type, input_data, report)
+            VALUES (?, ?, ?, ?)
+        """, (candidate_id, report_type, input_json, report_json))
+        report_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return report_id
+
+def get_candidate_reports(candidate_id: int, limit: int = 10) -> list:
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    import json
+    if DATABASE_URL and DATABASE_URL.startswith("postgresql"):
+        cursor.execute("""
+            SELECT id, report_type, input_data, report, created_at
+            FROM candidate_reports
+            WHERE candidate_id = %s
+            ORDER BY created_at DESC
+            LIMIT %s
+        """, (candidate_id, limit))
+    else:
+        cursor.execute("""
+            SELECT id, report_type, input_data, report, created_at
+            FROM candidate_reports
+            WHERE candidate_id = ?
+            ORDER BY created_at DESC
+            LIMIT ?
+        """, (candidate_id, limit))
+    rows = cursor.fetchall()
+    conn.close()
+    result = []
+    for row in rows:
+        item = dict(row)
+        if item.get('input_data'):
+            try:
+                item['input_data'] = json.loads(item['input_data'])
+            except:
+                pass
+        if item.get('report'):
+            try:
+                item['report'] = json.loads(item['report'])
+            except:
+                pass
+        result.append(item)
+    return result
