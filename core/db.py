@@ -175,8 +175,8 @@ def get_candidate(cand_id):
         return None
     candidate = dict(row)
     if 'data' in candidate:
-        candidate['data'] = json.loads(candidate['data'])
-    return candidate
+        if isinstance(candidate['data'], str):
+           candidate['data'] = json.loads(candidate['data'])
 
 def search_candidates(keyword):
     conn = get_db_connection()
