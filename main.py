@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 from core.transcriber import transcribe_audio
 from core.analyzers import analyze_candidate, analyze_workforce
 from core.file_parser import extract_text_from_file, extract_text_from_bytes
-from core.db import save_candidate, get_all_candidates, get_candidate, search_candidates, delete_candidate, save_rating, get_industry_avg, add_vacancy, get_all_vacancies, delete_vacancy, add_volunteer_vacancy, get_all_volunteer_vacancies, delete_volunteer_vacancy, save_employee_assessment, get_employee_assessments, get_all_vacancies_paginated, get_candidate_reports
+from core.db import save_candidate, get_all_candidates, get_candidate, search_candidates, delete_candidate, save_rating, get_industry_avg, add_vacancy, get_all_vacancies, delete_vacancy, add_volunteer_vacancy, get_all_volunteer_vacancies, delete_volunteer_vacancy, save_employee_assessment, get_employee_assessments, get_all_vacancies_paginated, get_candidate_reports, get_conversation_messages, add_message_to_conversation
 
 load_dotenv()
 
@@ -652,6 +652,66 @@ async def upload_vacancy(
         return {"filename": file.filename, "text": text, "status": "success"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Ошибка обработки файла: {str(e)}")
+
+# ---------- Чат с продолжением диалога ----------
+class ChatRequest(BaseModel):
+    session_id: Optional[str] = None
+    message: str
+    context: Optional[str] = None
+
+class ChatResponse(BaseModel):
+    session_id: str
+    response: str
+
+@app.post("/api/chat", response_model=ChatResponse)
+async def chat_endpoint(
+    request: ChatRequest,
+    api_key: str = Depends(verify_api_key)
+):
+    import uuid
+    session_id = request.session_id or str(uuid.uuid4())
+    messages = get_conversation_messages(session_id)
+    if not messages:
+        system_prompt = "Ты — полезный ассистент по HR. Отвечай на вопросы по найму, анализу кандидатов и workforce planning."
+        messages.append({"role": "system", "content": system_prompt})
+        if request.context:
+            messages.append({"role": "system", "content": f"Контекст для текущего диалога:\n{request.context}"})
+    messages.append({"role": "user", "content": request.message})
+    from core.llm_client import ask_llm_with_history
+    answer = ask_llm_with_history(messages)
+    add_message_to_conversation(session_id, "user", request.message)
+    add_message_to_conversation(session_id, "assistant", answer)
+    return {"session_id": session_id, "response": answer}
+
+# ---------- Чат с продолжением диалога ----------
+class ChatRequest(BaseModel):
+    session_id: Optional[str] = None
+    message: str
+    context: Optional[str] = None
+
+class ChatResponse(BaseModel):
+    session_id: str
+    response: str
+
+@app.post("/api/chat", response_model=ChatResponse)
+async def chat_endpoint(
+    request: ChatRequest,
+    api_key: str = Depends(verify_api_key)
+):
+    import uuid
+    session_id = request.session_id or str(uuid.uuid4())
+    messages = get_conversation_messages(session_id)
+    if not messages:
+        system_prompt = "Ты — полезный ассистент по HR. Отвечай на вопросы по найму, анализу кандидатов и workforce planning."
+        messages.append({"role": "system", "content": system_prompt})
+        if request.context:
+            messages.append({"role": "system", "content": f"Контекст для текущего диалога:\n{request.context}"})
+    messages.append({"role": "user", "content": request.message})
+    from core.llm_client import ask_llm_with_history
+    answer = ask_llm_with_history(messages)
+    add_message_to_conversation(session_id, "user", request.message)
+    add_message_to_conversation(session_id, "assistant", answer)
+    return {"session_id": session_id, "response": answer}
 
 # ---------- Запуск ----------
 if __name__ == "__main__":
