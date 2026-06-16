@@ -487,3 +487,57 @@ def save_candidate_report(candidate_id: int, report_type: str, input_data: dict,
     conn.close()
     return report_id
 
+import json
+import uuid
+
+def get_or_create_conversation(session_id: str) -> dict:
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    if DATABASE_URL and DATABASE_URL.startswith("postgresql"):
+        cursor.execute("SELECT id, session_id, messages, created_at, updated_at FROM conversations WHERE session_id = %s", (session_id,))
+    else:
+        cursor.execute("SELECT id, session_id, messages, created_at, updated_at FROM conversations WHERE session_id = ?", (session_id,))
+    row = cursor.fetchone()
+    if row:
+        result = dict(row)
+        if isinstance(result['messages'], str):
+            result['messages'] = json.loads(result['messages'])
+        conn.close()
+        return result
+    else:
+        messages = []
+        if DATABASE_URL and DATABASE_URL.startswith("postgresql"):
+            cursor.execute("INSERT INTO conversations (session_id, messages) VALUES (%s, %s) RETURNING id, session_id, messages, created_at, updated_at",
+                           (session_id, json.dumps(messages)))
+            row = cursor.fetchone()
+        else:
+            cursor.execute("INSERT INTO conversations (session_id, messages) VALUES (?, ?)",
+                           (session_id, json.dumps(messages)))
+            cursor.execute("SELECT id, session_id, messages, created_at, updated_at FROM conversations WHERE id = last_insert_rowid()")
+            row = cursor.fetchone()
+        conn.commit()
+        result = dict(row)
+        if isinstance(result['messages'], str):
+            result['messages'] = json.loads(result['messages'])
+        conn.close()
+        return result
+
+def add_message_to_conversation(session_id: str, role: str, content: str):
+    conv = get_or_create_conversation(session_id)
+    messages = conv['messages']
+    messages.append({"role": role, "content": content})
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    messages_json = json.dumps(messages, ensure_ascii=False)
+    if DATABASE_URL and DATABASE_URL.startswith("postgresql"):
+        cursor.execute("UPDATE conversations SET messages = %s, updated_at = CURRENT_TIMESTAMP WHERE session_id = %s",
+                       (messages_json, session_id))
+    else:
+        cursor.execute("UPDATE conversations SET messages = ?, updated_at = CURRENT_TIMESTAMP WHERE session_id = ?",
+                       (messages_json, session_id))
+    conn.commit()
+    conn.close()
+
+def get_conversation_messages(session_id: str) -> list:
+    conv = get_or_create_conversation(session_id)
+    return conv['messages']
