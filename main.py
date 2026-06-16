@@ -12,13 +12,7 @@ from dotenv import load_dotenv
 from core.transcriber import transcribe_audio
 from core.analyzers import analyze_candidate, analyze_workforce
 from core.file_parser import extract_text_from_file, extract_text_from_bytes
-from core.db import (
-    save_candidate, get_all_candidates, get_candidate, search_candidates,
-    delete_candidate, save_rating, get_industry_avg, add_vacancy,
-    get_all_vacancies, delete_vacancy, add_volunteer_vacancy,
-    get_all_volunteer_vacancies, delete_volunteer_vacancy,
-    save_employee_assessment, get_employee_assessments, get_all_vacancies_paginated
-)
+from core.db import save_candidate, get_all_candidates, get_candidate, search_candidates, delete_candidate, save_rating, get_industry_avg, add_vacancy, get_all_vacancies, delete_vacancy, add_volunteer_vacancy, get_all_volunteer_vacancies, delete_volunteer_vacancy, save_employee_assessment, get_employee_assessments, get_all_vacancies_paginated, get_candidate_reports
 
 load_dotenv()
 
@@ -49,6 +43,7 @@ class AnalyzeCandidateRequest(BaseModel):
     market_analysis: Optional[str] = None
     profession: Optional[str] = None
     options: Optional[Dict[str, bool]] = {"transferable": True, "antifilter": True}
+    candidate_id: Optional[int] = None
 
 class AnalyzeCandidateResponse(BaseModel):
     status: str
@@ -212,7 +207,6 @@ async def transcribe_endpoint(
         os.unlink(tmp_path)
 
 # ---------- Анализ кандидата ----------
-@app.post("/api/analyze/candidate", response_model=AnalyzeCandidateResponse)
 async def analyze_candidate_endpoint(
     request: AnalyzeCandidateRequest,
     api_key: str = Depends(verify_api_key)
@@ -220,8 +214,34 @@ async def analyze_candidate_endpoint(
     data = request.model_dump()
     if not any([data.get("transcribed_text"), data.get("vacancy_text"), data.get("resume_text")]):
         raise HTTPException(status_code=400, detail="No input data provided")
+    
+    # Получаем или создаём кандидата
+    candidate_id = request.candidate_id
+    if not candidate_id:
+        # Если candidate_id не передан, создаём нового кандидата
+        # Для этого нужно имя кандидата. Если нет имени, используем заглушку
+        candidate_name = "Анонимный кандидат"
+        # Пытаемся извлечь имя из резюме или транскрипции (можно улучшить)
+        if request.resume_text and len(request.resume_text) > 0:
+            # Пробуем взять первые 50 символов как имя
+            candidate_name = request.resume_text[:50].strip() or "Кандидат"
+        elif request.transcribed_text:
+            candidate_name = request.transcribed_text[:50].strip() or "Кандидат"
+        # Сохраняем кандидата (все тексты сохраняются в data)
+        from core.db import save_candidate
+        candidate_id = save_candidate(candidate_name, data)
+    
+    # Анализ
     try:
         report = analyze_candidate(data)
+        # Сохраняем отчёт в историю
+        from core.db import save_candidate_report
+        save_candidate_report(
+            candidate_id=candidate_id,
+            report_type="full_analysis",
+            input_data=data,  # можно сохранить входные данные
+            report=report if isinstance(report, dict) else {"raw": report}
+        )
         return AnalyzeCandidateResponse(status="success", report=report)
     except Exception as e:
         print("\n" + "="*60)
@@ -386,7 +406,7 @@ async def delete_vacancy(vacancy_id: int, api_key: str = Depends(verify_api_key)
 
 @app.patch("/api/vacancies/{vacancy_id}")
 async def update_vacancy(vacancy_id: int, request: VacancyUpdateRequest, api_key: str = Depends(verify_api_key)):
-    from core.db import get_vacancy, update_vacancy
+    from core.db import get_vacancy, update_vacancy, get_candidate_reports, get_candidate_reports
     vacancy = get_vacancy(vacancy_id)
     if not vacancy:
         raise HTTPException(status_code=404, detail="Vacancy not found")
@@ -428,7 +448,7 @@ async def delete_volunteer(vacancy_id: int, api_key: str = Depends(verify_api_ke
 # ---------- Матчинг ----------
 @app.post("/api/match", response_model=List[MatchResponse])
 async def run_matching(request: MatchRequest, api_key: str = Depends(verify_api_key)):
-    from core.db import get_all_candidates, get_all_vacancies
+    from core.db import get_all_candidates, get_all_vacancies, get_candidate_reports, get_candidate_reports
     from core.llm_client import ask_llm
     import json
     candidates = get_all_candidates()
@@ -552,7 +572,7 @@ async def assess_employee(request: EmployeeAssessmentRequest, api_key: str = Dep
 # ---------- Team Assessment ----------
 @app.get("/api/employee/team")
 async def team_assessment(api_key: str = Depends(verify_api_key)):
-    from core.db import get_employee_assessments
+    from core.db import get_employee_assessments, get_candidate_reports, get_candidate_reports
     assessments = get_employee_assessments()
     if not assessments:
         return {"status": "success", "assessments": [], "summary": {"total_employees": 0}}
@@ -615,3 +635,14 @@ async def upload_vacancy(
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+@app.get("/api/candidates/{candidate_id}/reports")
+async def candidate_reports(
+    candidate_id: int,
+    limit: int = Query(10, ge=1, le=50),
+    api_key: str = Depends(verify_api_key)
+):
+    reports = get_candidate_reports(candidate_id, limit=limit)
+    if not reports:
+        raise HTTPException(status_code=404, detail="No reports found for this candidate")
+    return {"candidate_id": candidate_id, "reports": reports}
