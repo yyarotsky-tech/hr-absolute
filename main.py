@@ -271,7 +271,15 @@ async def workforce_endpoint(
 @app.post("/api/candidates/save", response_model=CandidateResponse)
 async def save_candidate_endpoint(request: CandidateSaveRequest, api_key: str = Depends(verify_api_key)):
     cand_id = save_candidate(request.name, request.data)
-    return CandidateResponse(id=cand_id, name=request.name, created_at="", transcribed_snippet="", vacancy_snippet="", resume_snippet="")
+    candidate = get_candidate(cand_id)
+    return CandidateResponse(
+        id=candidate["id"],
+        name=candidate["name"],
+        created_at=candidate["created_at"],
+        transcribed_snippet=candidate.get("transcribed_text", "")[:100] or "",
+        vacancy_snippet=candidate.get("vacancy_text", "")[:100] or "",
+        resume_snippet=candidate.get("resume_text", "")[:100] or ""
+    )
 
 @app.get("/api/candidates", response_model=List[CandidateResponse])
 async def list_candidates(api_key: str = Depends(verify_api_key)):
