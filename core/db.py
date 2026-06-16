@@ -133,9 +133,32 @@ def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+    cursor.execute("""
+            CREATE TABLE IF NOT EXISTS conversations (
+                id SERIAL PRIMARY KEY,
+                session_id VARCHAR(255) NOT NULL,
+                user_id INTEGER,  -- если таблицы users пока нет, можно без REFERENCES
+                messages JSONB NOT NULL DEFAULT '[]'::jsonb,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+    
+    cursor.execute("""
+            CREATE TABLE IF NOT EXISTS conversations (
+                id SERIAL PRIMARY KEY,
+                session_id VARCHAR(255) NOT NULL,
+                user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                messages JSONB NOT NULL DEFAULT '[]'::jsonb,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
 
     conn.commit()
     conn.close()
+
+
 
 def save_candidate(name, data):
     conn = get_db_connection()
