@@ -16,6 +16,19 @@ from core.db import save_candidate, get_all_candidates, get_candidate, search_ca
 
 load_dotenv()
 
+class AnalyzeCandidateRequest(BaseModel):
+    candidate_id: Optional[int] = None
+    transcribed_text: Optional[str] = None
+    vacancy_text: Optional[str] = None
+    resume_text: Optional[str] = None
+    market_analysis: Optional[str] = None
+    profession: Optional[str] = None
+    options: Optional[Dict[str, bool]] = {}
+
+class AnalyzeCandidateResponse(BaseModel):
+    status: str
+    report: Dict[str, Any]
+
 API_KEY = os.getenv("API_KEY", "test_key_123")
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
@@ -207,6 +220,7 @@ async def transcribe_endpoint(
         os.unlink(tmp_path)
 
 # ---------- Анализ кандидата ----------
+@app.post("/api/analyze/candidate", response_model=AnalyzeCandidateResponse)
 async def analyze_candidate_endpoint(
     request: AnalyzeCandidateRequest,
     api_key: str = Depends(verify_api_key)
