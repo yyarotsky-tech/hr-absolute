@@ -950,6 +950,91 @@ async def match_batch(
 
     return {"status": "success", "matches": matches}
 
+# ---------- Саммари кандидата ----------
+class SummaryRequest(BaseModel):
+    candidate_id: Optional[int] = None
+    transcribed_text: Optional[str] = None
+    vacancy_text: Optional[str] = None
+    resume_text: Optional[str] = None
+
+class SummaryResponse(BaseModel):
+    status: str
+    summary: Dict[str, Any]
+
+@app.post("/api/candidates/summary", response_model=SummaryResponse)
+async def generate_summary(
+    request: SummaryRequest,
+    api_key: str = Depends(verify_api_key)
+):
+    if request.candidate_id:
+        candidate = get_candidate(request.candidate_id)
+        if not candidate:
+            raise HTTPException(status_code=404, detail="Кандидат не найден")
+        text_parts = []
+        if candidate.get('transcribed_text'):
+            text_parts.append(candidate['transcribed_text'])
+        if candidate.get('vacancy_text'):
+            text_parts.append(candidate['vacancy_text'])
+        if candidate.get('resume_text'):
+            text_parts.append(candidate['resume_text'])
+        if not text_parts:
+            raise HTTPException(status_code=400, detail="У кандидата нет текстовых данных для саммари")
+        combined_text = "\n".join(text_parts)
+    else:
+        combined_text = (request.transcribed_text or "") + "\n" + (request.vacancy_text or "") + "\n" + (request.resume_text or "")
+        if not combined_text.strip():
+            raise HTTPException(status_code=400, detail="Не переданы текстовые данные")
+
+    prompt = f"""
+Ты — эксперт по HR. Составь краткое саммари по кандидату на основе предоставленного текста.
+Вот текст (может быть транскрипцией, описанием вакансии, резюме):
+{combined_text}
+
+Твоя задача: выделить ключевую информацию и представить её в виде структурированного JSON со следующими полями:
+- "key_skills": массив строк (основные навыки, не более 5),
+- "experience": строка (кратко о релевантном опыте),
+- "motivation": строка (чем кандидат мотивирован, если указано),
+- "strengths": массив строк (сильные стороны),
+- "weaknesses": массив строк (слабые стороны или зоны роста, если видны),
+- "summary": строка (общее впечатление, 1-2 предложения).
+
+Ответ выведи только в формате JSON, без пояснений.
+"""
+
+    from core.llm_client import ask_llm
+    raw = ask_llm(prompt)
+
+    import json
+    try:
+        clean = raw.strip()
+        if clean.startswith("```json"):
+            clean = clean[7:]
+        if clean.startswith("```"):
+            clean = clean[3:]
+        if clean.endswith("```"):
+            clean = clean[:-3]
+        summary_data = json.loads(clean)
+    except Exception:
+        summary_data = {
+            "key_skills": [],
+            "experience": "",
+            "motivation": "",
+            "strengths": [],
+            "weaknesses": [],
+            "summary": raw
+        }
+
+    if request.candidate_id:
+        from core.db import save_candidate_report
+        save_candidate_report(
+            candidate_id=request.candidate_id,
+            report_type="summary",
+            input_data={"text": combined_text},
+            report=summary_data
+        )
+
+    return {"status": "success", "summary": summary_data}
+
 # ---------- Запуск ----------
 if __name__ == "__main__":
     import uvicorn
