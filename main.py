@@ -229,32 +229,24 @@ async def analyze_candidate_endpoint(
     if not any([data.get("transcribed_text"), data.get("vacancy_text"), data.get("resume_text")]):
         raise HTTPException(status_code=400, detail="No input data provided")
     
-    # Получаем или создаём кандидата
     candidate_id = request.candidate_id
     if not candidate_id:
-        # Если candidate_id не передан, создаём нового кандидата
-        # Для этого нужно имя кандидата. Если нет имени, используем заглушку
         candidate_name = "Анонимный кандидат"
-        # Пытаемся извлечь имя из резюме или транскрипции (можно улучшить)
         if request.resume_text and len(request.resume_text) > 0:
-            # Пробуем взять первые 50 символов как имя
             candidate_name = request.resume_text[:50].strip() or "Кандидат"
         elif request.transcribed_text:
             candidate_name = request.transcribed_text[:50].strip() or "Кандидат"
-        # Сохраняем кандидата (все тексты сохраняются в data)
-from core.db import save_candidate, get_all_candidates, get_candidate, search_candidates, delete_candidate, save_rating, get_industry_avg, add_vacancy, get_all_vacancies, delete_vacancy, add_volunteer_vacancy, get_all_volunteer_vacancies, delete_volunteer_vacancy, save_employee_assessment, get_employee_assessments, get_all_vacancies_paginated, get_candidate_reports, get_conversation_messages, add_message_to_conversation, get_vacancy, save_candidate_report
-
+        from core.db import save_candidate
         candidate_id = save_candidate(candidate_name, data)
     
-    # Анализ
     try:
+        from core.analyzers import analyze_candidate
         report = analyze_candidate(data)
-        # Сохраняем отчёт в историю
         from core.db import save_candidate_report
         save_candidate_report(
             candidate_id=candidate_id,
             report_type="full_analysis",
-            input_data=data,  # можно сохранить входные данные
+            input_data=data,
             report=report if isinstance(report, dict) else {"raw": report}
         )
         return AnalyzeCandidateResponse(status="success", report=report)
