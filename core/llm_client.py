@@ -1,14 +1,15 @@
-from .config import client, DEEPSEEK_MODEL
+import os
+import requests
+import json
 
-def ask_llm(prompt: str, model: str = None, temperature: float = 0.7) -> str:
-    if model is None:
-        model = DEEPSEEK_MODEL
-    response = client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=temperature
-    )
-    return response.choices[0].message.content
+def ask_llm(prompt: str) -> str:
+    """
+    Базовый вызов LLM. Замените на вашу реальную реализацию.
+    Например, через DeepSeek, OpenAI или локальную модель.
+    """
+    # Вставьте сюда ваш код вызова LLM
+    # Пока возвращаем тестовый ответ
+    return f"Это тестовый ответ на ваш запрос: {prompt[:50]}..."
 
 def ask_llm_with_history(messages: list) -> str:
     """
@@ -20,14 +21,9 @@ def ask_llm_with_history(messages: list) -> str:
         role = msg.get("role", "user")
         content = msg.get("content", "")
         if role == "system":
-            prompt += f"System: {content}
-"
+            prompt += f"System: {content}\n"
         elif role == "user":
-            prompt += f"User: {content}
-"
+            prompt += f"User: {content}\n"
         elif role == "assistant":
-            prompt += f"Assistant: {content}
-"
-    from .llm_client import ask_llm
+            prompt += f"Assistant: {content}\n"
     return ask_llm(prompt.strip())
-
