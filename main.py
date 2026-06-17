@@ -713,6 +713,102 @@ async def chat_endpoint(
     add_message_to_conversation(session_id, "assistant", answer)
     return {"session_id": session_id, "response": answer}
 
+# ---------- Генерация вопросов для собеседования ----------
+class InterviewQuestionsRequest(BaseModel):
+    candidate_id: Optional[int] = None
+    resume_text: Optional[str] = None
+    vacancy_text: Optional[str] = None
+    transcribed_text: Optional[str] = None
+
+class InterviewQuestionsResponse(BaseModel):
+    status: str
+    questions: List[str]
+
+@app.post("/api/interview/questions", response_model=InterviewQuestionsResponse)
+async def generate_interview_questions(
+    request: InterviewQuestionsRequest,
+    api_key: str = Depends(verify_api_key)
+):
+    # Собираем тексты
+    resume = request.resume_text or ""
+    vacancy = request.vacancy_text or ""
+    transcribed = request.transcribed_text or ""
+
+    if request.candidate_id:
+        candidate = get_candidate(request.candidate_id)
+        if not candidate:
+            raise HTTPException(status_code=404, detail="Кандидат не найден")
+        if not resume:
+            resume = candidate.get('resume_text', '') or ""
+        if not vacancy:
+            vacancy = candidate.get('vacancy_text', '') or ""
+        if not transcribed:
+            transcribed = candidate.get('transcribed_text', '') or ""
+
+    # Проверяем, что есть хоть какие-то данные
+    if not resume and not vacancy and not transcribed:
+        raise HTTPException(
+            status_code=400,
+            detail="Не предоставлены данные: укажите резюме, описание вакансии или транскрипцию (или candidate_id)"
+        )
+
+    # Формируем контекст для промпта
+    context = "Информация о кандидате:\n"
+    if resume:
+        context += f"Резюме: {resume}\n"
+    if vacancy:
+        context += f"Описание вакансии: {vacancy}\n"
+    if transcribed:
+        context += f"Транскрипция собеседования: {transcribed}\n"
+
+    prompt = f"""
+Ты — опытный HR-эксперт и интервьюер. На основе предоставленных данных о кандидате и вакансии сгенерируй персонализированные вопросы для собеседования.
+
+Вот данные:
+{context}
+
+Твоя задача — составить список из 5–7 вопросов, которые помогут:
+1. Раскрыть реальный опыт и навыки кандидата (не шаблонные).
+2. Оценить его мотивацию и культурное соответствие.
+3. Выявить зоны роста и потенциал.
+4. Проверить знание конкретных технологий / методов, указанных в вакансии.
+
+Вопросы должны быть открытыми, ситуационными и проективными. 
+Ответ выведи в виде JSON-массива строк, без пояснений. Например: ["Вопрос 1", "Вопрос 2", ...]
+"""
+
+    from core.llm_client import ask_llm
+    raw = ask_llm(prompt)
+
+    # Парсим JSON
+    import json
+    try:
+        clean = raw.strip()
+        if clean.startswith("```json"):
+            clean = clean[7:]
+        if clean.startswith("```"):
+            clean = clean[3:]
+        if clean.endswith("```"):
+            clean = clean[:-3]
+        questions = json.loads(clean)
+        if not isinstance(questions, list):
+            questions = [str(questions)]
+    except Exception as e:
+        # Fallback – разбить текст на строки
+        questions = [line.strip() for line in raw.split('\n') if line.strip()]
+
+    # Если есть candidate_id, сохраняем вопросы в историю (как отчёт)
+    if request.candidate_id:
+        from core.db import save_candidate_report
+        save_candidate_report(
+            candidate_id=request.candidate_id,
+            report_type="interview_questions",
+            input_data={"resume": resume, "vacancy": vacancy, "transcribed": transcribed},
+            report={"questions": questions}
+        )
+
+    return {"status": "success", "questions": questions}
+
 # ---------- Запуск ----------
 if __name__ == "__main__":
     import uvicorn
