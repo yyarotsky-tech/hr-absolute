@@ -242,7 +242,8 @@ async def analyze_candidate_endpoint(
         elif request.transcribed_text:
             candidate_name = request.transcribed_text[:50].strip() or "Кандидат"
         # Сохраняем кандидата (все тексты сохраняются в data)
-        from core.db import save_candidate
+        from core.db import save_candidate, get_vacancy, get_candidate, save_candidate_report).
+
         candidate_id = save_candidate(candidate_name, data)
     
     # Анализ
@@ -808,6 +809,154 @@ async def generate_interview_questions(
         )
 
     return {"status": "success", "questions": questions}
+
+# ---------- Батч-матчинг (оценка нескольких кандидатов на вакансию) ----------
+class MatchBatchRequest(BaseModel):
+    vacancy_id: Optional[int] = None
+    vacancy_text: Optional[str] = None
+    candidate_ids: Optional[List[int]] = None
+    candidates: Optional[List[Dict[str, str]]] = None  # список {"name": ..., "text": ...}
+
+class MatchBatchResponse(BaseModel):
+    status: str
+    matches: List[Dict[str, Any]]  # каждый элемент: candidate_id, name, fit_score, strengths, risks, recommendation
+
+@app.post("/api/match/batch", response_model=MatchBatchResponse)
+async def match_batch(
+    request: MatchBatchRequest,
+    api_key: str = Depends(verify_api_key)
+):
+    # 1. Получаем текст вакансии
+    vacancy_text = request.vacancy_text or ""
+    if request.vacancy_id:
+        from core.db import get_vacancy
+        vacancy = get_vacancy(request.vacancy_id)
+        if not vacancy:
+            raise HTTPException(status_code=404, detail="Вакансия не найдена")
+        vacancy_text = vacancy.get('description', '') + "\n" + vacancy.get('requirements', '')
+
+    if not vacancy_text.strip():
+        raise HTTPException(status_code=400, detail="Не указан текст вакансии (передайте vacancy_text или vacancy_id)")
+
+    # 2. Получаем данные кандидатов
+    candidates_data = []
+    if request.candidate_ids:
+        from core.db import get_candidate
+        for cid in request.candidate_ids:
+            cand = get_candidate(cid)
+            if cand:
+                # Собираем текст из всех полей
+                text = (cand.get('transcribed_text', '') or "") + "\n" + \
+                       (cand.get('resume_text', '') or "") + "\n" + \
+                       (cand.get('vacancy_text', '') or "")
+                candidates_data.append({
+                    "id": cid,
+                    "name": cand.get('name', f"Кандидат {cid}"),
+                    "text": text.strip()
+                })
+    elif request.candidates:
+        for idx, cand in enumerate(request.candidates):
+            name = cand.get('name', f"Кандидат {idx+1}")
+            text = cand.get('text', '')
+            candidates_data.append({
+                "id": None,
+                "name": name,
+                "text": text
+            })
+    else:
+        raise HTTPException(status_code=400, detail="Передайте candidate_ids или candidates")
+
+    if not candidates_data:
+        raise HTTPException(status_code=400, detail="Нет данных о кандидатах")
+
+    # 3. Формируем промпт для LLM
+    candidates_info = ""
+    for i, c in enumerate(candidates_data):
+        candidates_info += f"Кандидат {i+1} ({c['name']}):\n{c['text'][:1000]}\n\n"
+
+    prompt = f"""
+Ты — HR-эксперт по оценке персонала. Твоя задача — оценить соответствие каждого кандидата вакансии.
+
+Вакансия:
+{vacancy_text}
+
+Список кандидатов:
+{candidates_info}
+
+Для каждого кандидата укажи:
+- fit_score (число от 0 до 100) – насколько кандидат подходит.
+- strengths (краткий список сильных сторон).
+- risks (краткий список рисков или зон роста).
+- recommendation (что делать: "Пригласить на собеседование", "Отложить", "Отказать" – с кратким пояснением).
+
+Ответ выведи строго в формате JSON-массива объектов с полями: candidate_index, fit_score, strengths, risks, recommendation.
+Пример ответа:
+[
+  {{"candidate_index": 1, "fit_score": 85, "strengths": ["Опыт Python", "Знание микросервисов"], "risks": ["Мало опыта в лидерстве"], "recommendation": "Пригласить на собеседование"}},
+  ...
+]
+Не добавляй пояснений вне JSON.
+"""
+
+    from core.llm_client import ask_llm
+    raw = ask_llm(prompt)
+
+    # 4. Парсим ответ
+    import json
+    try:
+        clean = raw.strip()
+        if clean.startswith("```json"):
+            clean = clean[7:]
+        if clean.startswith("```"):
+            clean = clean[3:]
+        if clean.endswith("```"):
+            clean = clean[:-3]
+        results = json.loads(clean)
+        if not isinstance(results, list):
+            results = []
+    except Exception:
+        results = []
+
+    # 5. Сопоставляем с исходными кандидатами и формируем финальный ответ
+    matches = []
+    for i, cand in enumerate(candidates_data):
+        # Находим результат по индексу (индексы в ответе могут быть с 1)
+        res = next((r for r in results if r.get('candidate_index') == i+1), None)
+        if res:
+            matches.append({
+                "candidate_id": cand["id"],
+                "name": cand["name"],
+                "fit_score": res.get('fit_score', 0),
+                "strengths": res.get('strengths', []),
+                "risks": res.get('risks', []),
+                "recommendation": res.get('recommendation', "Не определён")
+            })
+        else:
+            matches.append({
+                "candidate_id": cand["id"],
+                "name": cand["name"],
+                "fit_score": 0,
+                "strengths": [],
+                "risks": [],
+                "recommendation": "Не удалось оценить"
+            })
+
+    # 6. Сортируем по убыванию fit_score
+    matches.sort(key=lambda x: x['fit_score'], reverse=True)
+
+    # 7. Сохраняем результаты в историю (для каждого кандидата)
+    if request.vacancy_id:
+        from core.db import save_candidate_report
+        for m in matches:
+            if m["candidate_id"]:
+                save_candidate_report(
+                    candidate_id=m["candidate_id"],
+                    report_type="match",
+                    input_data={"vacancy_id": request.vacancy_id, "vacancy_text": vacancy_text},
+                    report=m
+                )
+
+    return {"status": "success", "matches": matches}
 
 # ---------- Запуск ----------
 if __name__ == "__main__":
