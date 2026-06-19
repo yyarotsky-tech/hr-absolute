@@ -23,7 +23,7 @@ def ask_llm(prompt: str) -> str:
             model=DEEPSEEK_MODEL,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.7,
-            max_tokens=1000
+            max_tokens=3000
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
