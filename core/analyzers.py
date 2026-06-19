@@ -36,7 +36,7 @@ def analyze_workforce(data: dict) -> dict:
 
             print("=== RAW LLM RESPONSE ===")
             print(answer)
-            ч]print("========================")
+            print("========================")
         }
     
     return {"status": "success", "report": report}
