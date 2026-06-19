@@ -33,6 +33,10 @@ def analyze_workforce(data: dict) -> dict:
             "total_headcount_change": 0,
             "estimated_budget_impact": "—",
             "vacancies": []
+
+            print("=== RAW LLM RESPONSE ===")
+            print(answer)
+            ч]print("========================")
         }
     
     return {"status": "success", "report": report}
