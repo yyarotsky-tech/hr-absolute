@@ -26,17 +26,13 @@ def analyze_workforce(data: dict) -> dict:
         report = json.loads(clean)
     except Exception:
         # Если не удалось – возвращаем fallback-структуру
-        report = {
-            "summary": "Ошибка парсинга ответа. Пожалуйста, попробуйте ещё раз.",
-            "recommendations": ["Повторите запрос позже", "Если ошибка повторяется, обратитесь в поддержку"],
-            "new_positions": [],
-            "total_headcount_change": 0,
-            "estimated_budget_impact": "—",
-            "vacancies": []
-
-            print("=== RAW LLM RESPONSE ===")
-            print(answer)
-            print("========================")
-        }
+  report = {
+         "summary": "Ошибка парсинга ответа. Пожалуйста, попробуйте ещё раз.",
+         "recommendations": ["Повторите запрос позже", "Если ошибка повторяется, обратитесь в поддержку"],
+         "new_positions": [],
+         "total_headcount_change": 0,
+         "estimated_budget_impact": "—",
+         "vacancies": []
+     }
     
     return {"status": "success", "report": report}
