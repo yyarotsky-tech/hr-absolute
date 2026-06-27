@@ -12,10 +12,12 @@ def analyze_workforce(data: dict) -> dict:
     from .prompt_builder import build_workforce_prompt
     prompt = build_workforce_prompt(data)
     answer = ask_llm(prompt)
-    
-    # Пытаемся распарсить ответ как JSON
+
+    print("=== RAW LLM RESPONSE ===")
+    print(answer)
+    print("========================")
+
     try:
-        # Убираем возможные markdown-обёртки
         clean = answer.strip()
         if clean.startswith("```json"):
             clean = clean[7:]
@@ -24,15 +26,15 @@ def analyze_workforce(data: dict) -> dict:
         if clean.endswith("```"):
             clean = clean[:-3]
         report = json.loads(clean)
-    except Exception:
-        # Если не удалось – возвращаем fallback-структуру
-  report = {
-         "summary": "Ошибка парсинга ответа. Пожалуйста, попробуйте ещё раз.",
-         "recommendations": ["Повторите запрос позже", "Если ошибка повторяется, обратитесь в поддержку"],
-         "new_positions": [],
-         "total_headcount_change": 0,
-         "estimated_budget_impact": "—",
-         "vacancies": []
-     }
-    
+    except Exception as e:
+        print(f"JSON parsing error: {e}")
+        report = {
+            "summary": "Ошибка парсинга ответа. Пожалуйста, попробуйте ещё раз.",
+            "recommendations": ["Повторите запрос позже", "Если ошибка повторяется, обратитесь в поддержку"],
+            "new_positions": [],
+            "total_headcount_change": 0,
+            "estimated_budget_impact": "—",
+            "vacancies": []
+        }
+
     return {"status": "success", "report": report}
