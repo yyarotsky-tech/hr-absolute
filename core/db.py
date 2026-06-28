@@ -3,7 +3,6 @@ import sqlite3
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import json
-import uuid
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
@@ -70,16 +69,7 @@ def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS conversations (
-                id SERIAL PRIMARY KEY,
-                session_id VARCHAR(255) NOT NULL,
-                user_id INTEGER,
-                messages JSONB NOT NULL DEFAULT '[]'::jsonb,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
+        # Временно удаляем conversations
     else:
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS vacancies (
@@ -132,21 +122,12 @@ def init_db():
                 FOREIGN KEY (candidate_id) REFERENCES candidates(id) ON DELETE CASCADE
             )
         """)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS conversations (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                session_id TEXT NOT NULL,
-                user_id INTEGER,
-                messages TEXT NOT NULL DEFAULT '[]',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
+        # Временно удаляем conversations
     
     conn.commit()
     conn.close()
 
-# ---------- Candidate functions ----------
+# ---------- Остальные функции ----------
 def save_candidate(name: str, data: dict) -> int:
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -242,7 +223,6 @@ def save_rating(candidate_id: int, rating: int, comment: str = None):
 def get_industry_avg(industry: str):
     return {"industry": industry, "avg_salary": 80000, "turnover": 12.5}
 
-# ---------- Vacancy functions ----------
 def add_vacancy(title: str, description: str = None, requirements: str = None, 
                 salary_min: int = None, salary_max: int = None) -> int:
     conn = get_db_connection()
@@ -355,7 +335,6 @@ def delete_vacancy(vacancy_id: int):
     conn.close()
     return deleted
 
-# ---------- Volunteer vacancies ----------
 def add_volunteer_vacancy(title: str, description: str = None, requirements: str = None,
                          organization: str = None, contact: str = None) -> int:
     conn = get_db_connection()
@@ -396,7 +375,6 @@ def delete_volunteer_vacancy(vacancy_id: int):
     conn.close()
     return deleted
 
-# ---------- Employee assessments ----------
 def save_employee_assessment(employee_name: str, position: str, raw_text: str) -> int:
     import random
     conn = get_db_connection()
@@ -433,7 +411,6 @@ def get_employee_assessments():
     conn.close()
     return [dict(row) for row in rows]
 
-# ---------- Candidate reports ----------
 def save_candidate_report(candidate_id: int, report_type: str, input_data: dict, report: dict) -> int:
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -491,56 +468,3 @@ def get_candidate_reports(candidate_id: int, limit: int = 10) -> list:
                 pass
         result.append(item)
     return result
-
-# ---------- Conversation functions ----------
-def get_or_create_conversation(session_id: str) -> dict:
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    if DATABASE_URL and DATABASE_URL.startswith("postgresql"):
-        cursor.execute("SELECT id, session_id, messages, created_at, updated_at FROM conversations WHERE session_id = %s", (session_id,))
-    else:
-        cursor.execute("SELECT id, session_id, messages, created_at, updated_at FROM conversations WHERE session_id = ?", (session_id,))
-    row = cursor.fetchone()
-    if row:
-        result = dict(row)
-        if isinstance(result['messages'], str):
-            result['messages'] = json.loads(result['messages'])
-        conn.close()
-        return result
-    else:
-        messages = []
-        if DATABASE_URL and DATABASE_URL.startswith("postgresql"):
-            cursor.execute("INSERT INTO conversations (session_id, messages) VALUES (%s, %s) RETURNING id, session_id, messages, created_at, updated_at",
-                           (session_id, json.dumps(messages)))
-            row = cursor.fetchone()
-        else:
-            cursor.execute("INSERT INTO conversations (session_id, messages) VALUES (?, ?)",
-                           (session_id, json.dumps(messages)))
-            cursor.execute("SELECT id, session_id, messages, created_at, updated_at FROM conversations WHERE id = last_insert_rowid()")
-            row = cursor.fetchone()
-        conn.commit()
-        result = dict(row)
-        if isinstance(result['messages'], str):
-            result['messages'] = json.loads(result['messages'])
-        conn.close()
-        return result
-
-def add_message_to_conversation(session_id: str, role: str, content: str):
-    conv = get_or_create_conversation(session_id)
-    messages = conv['messages']
-    messages.append({"role": role, "content": content})
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    messages_json = json.dumps(messages, ensure_ascii=False)
-    if DATABASE_URL and DATABASE_URL.startswith("postgresql"):
-        cursor.execute("UPDATE conversations SET messages = %s, updated_at = CURRENT_TIMESTAMP WHERE session_id = %s",
-                       (messages_json, session_id))
-    else:
-        cursor.execute("UPDATE conversations SET messages = ?, updated_at = CURRENT_TIMESTAMP WHERE session_id = ?",
-                       (messages_json, session_id))
-    conn.commit()
-    conn.close()
-
-def get_conversation_messages(session_id: str) -> list:
-    conv = get_or_create_conversation(session_id)
-    return conv['messages']
