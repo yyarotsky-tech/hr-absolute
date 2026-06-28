@@ -20,7 +20,6 @@ def init_db():
     cursor = conn.cursor()
     
     if IS_POSTGRES:
-        # PostgreSQL tables
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS vacancies (
                 id SERIAL PRIMARY KEY,
@@ -72,7 +71,6 @@ def init_db():
             )
         """)
     else:
-        # SQLite tables
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS vacancies (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
