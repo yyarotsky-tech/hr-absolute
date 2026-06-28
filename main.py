@@ -10,7 +10,7 @@ from fastapi.security import APIKeyHeader
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
-from core.transcriber import transcribe_audio
+# from core.transcriber import transcribe_audio  # временно отключено
 from core.analyzers import analyze_candidate, analyze_workforce
 from core.file_parser import extract_text_from_file, extract_text_from_bytes
 from core.db import (
@@ -247,22 +247,23 @@ async def root():
 async def check_key(api_key: str = Depends(verify_api_key)):
     return {"status": "ok"}
 
-@app.post("/api/transcribe", response_model=TranscribeResponse)
-async def transcribe_endpoint(
-    audio: UploadFile = FastAPIFile(...),
-    language: str = "ru",
-    api_key: str = Depends(verify_api_key)
-):
-    try:
-        contents = await audio.read()
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
-            tmp.write(contents)
-            tmp_path = tmp.name
-        text = transcribe_audio(tmp_path, language)
-        os.unlink(tmp_path)
-        return {"status": "success", "transcribed_text": text}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+# Транскрипция временно отключена
+# @app.post("/api/transcribe", response_model=TranscribeResponse)
+# async def transcribe_endpoint(
+#     audio: UploadFile = FastAPIFile(...),
+#     language: str = "ru",
+#     api_key: str = Depends(verify_api_key)
+# ):
+#     try:
+#         contents = await audio.read()
+#         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+#             tmp.write(contents)
+#             tmp_path = tmp.name
+#         text = transcribe_audio(tmp_path, language)
+#         os.unlink(tmp_path)
+#         return {"status": "success", "transcribed_text": text}
+#     except Exception as e:
+#         raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/api/analyze/candidate", response_model=AnalyzeCandidateResponse)
 async def analyze_candidate_endpoint(
@@ -356,12 +357,10 @@ async def rate_candidate(request: RatingRequest, api_key: str = Depends(verify_a
 
 @app.post("/api/benchmark/compare")
 async def compare_benchmark(request: BenchmarkCompareRequest, api_key: str = Depends(verify_api_key)):
-    # Mock response
     return {"status": "ok", "data": {"industry_avg": 100, "company": 95}}
 
 @app.get("/api/rosstat/construction")
 async def get_rosstat_construction(api_key: str = Depends(verify_api_key)):
-    # Mock
     return {"status": "ok", "data": []}
 
 @app.post("/api/vacancies/add", response_model=VacancyResponse)
@@ -415,7 +414,6 @@ async def delete_vacancy_endpoint(vacancy_id: int, api_key: str = Depends(verify
 @app.post("/api/volunteer/add", response_model=VolunteerResponse)
 async def add_volunteer(request: VolunteerRequest, api_key: str = Depends(verify_api_key)):
     vid = add_volunteer_vacancy(request.title, request.description, request.requirements, request.organization, request.contact)
-    # Since get_volunteer_vacancy doesn't exist, we return minimal
     return VolunteerResponse(id=vid, title=request.title, description=request.description, requirements=request.requirements, organization=request.organization, contact=request.contact, created_at=datetime.now())
 
 @app.get("/api/volunteer", response_model=List[VolunteerResponse])
@@ -431,13 +429,11 @@ async def delete_volunteer(vacancy_id: int, api_key: str = Depends(verify_api_ke
 
 @app.post("/api/match")
 async def run_matching(request: MatchRequest, api_key: str = Depends(verify_api_key)):
-    # Simple mock
     return [MatchResponse(candidate_id=1, candidate_name="Test", vacancy_id=1, vacancy_title="Dev", score=85, strengths="Good", growth_points="Learn", success_scenario="Good", alternative_roles="Other")]
 
 @app.post("/api/employee/assess", response_model=EmployeeAssessmentResponse)
 async def assess_employee(request: EmployeeAssessmentRequest, api_key: str = Depends(verify_api_key)):
     assessment_id = save_employee_assessment(request.employee_name, request.position, request.raw_text)
-    # Return mock
     return {"status": "success", "assessment": {"id": assessment_id, "score": 80}}
 
 @app.get("/api/employee/team")
@@ -530,7 +526,6 @@ async def generate_summary(
 ):
     combined_text = ""
     if request.candidate_id:
-        # Используем get_all_candidates для поиска по ID
         all_candidates = get_all_candidates()
         candidate = next((c for c in all_candidates if c['id'] == request.candidate_id), None)
         if not candidate:
@@ -606,7 +601,6 @@ async def generate_interview_questions(
     transcribed = request.transcribed_text or ""
 
     if request.candidate_id:
-        # Use get_all_candidates to find the candidate
         all_candidates = get_all_candidates()
         candidate = next((c for c in all_candidates if c['id'] == request.candidate_id), None)
         if candidate:
@@ -687,7 +681,6 @@ async def match_batch(
     candidates_data = []
     if request.candidate_ids:
         for cid in request.candidate_ids:
-            # Используем get_all_candidates для поиска
             all_candidates = get_all_candidates()
             cand = next((c for c in all_candidates if c['id'] == cid), None)
             if cand:
