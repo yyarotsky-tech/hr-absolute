@@ -1,70 +1,58 @@
-from .llm_client import ask_llm
-
 def build_candidate_prompt(data: dict) -> str:
-    audio_text = data.get("transcribed_text", "")
-    vacancy = data.get("vacancy_text", "")
-    resume = data.get("resume_text", "")
-    market = data.get("market_analysis", "")
-    profession = data.get("profession", "")
-    transferable = data.get("options", {}).get("transferable", True)
-    antifilter = data.get("options", {}).get("antifilter", True)
-
-    blocks = [
-        f"Расшифровка аудио собеседования: {audio_text if audio_text else '❌ Не предоставлена'}",
-        f"Текст вакансии: {vacancy if vacancy else '❌ Не предоставлен'}",
-        f"Текст резюме кандидата: {resume if resume else '❌ Не предоставлен'}",
-        f"Анализ рынка: {market if market else '❌ Не предоставлен (используй свои знания)'}"
-    ]
-
-    tasks = []
-    if vacancy and resume:
-        tasks.append(f"1. Оцени соответствие резюме вакансии для позиции {(profession or 'профессия не указана').upper()}. Укажи процент, сильные стороны, слабые места.")
-    elif vacancy and not resume:
-        tasks.append(f"1. Оцени, насколько кандидат (по аудио) подходит под вакансию {(profession or 'профессия не указана').upper()}.")
-    elif resume and not vacancy:
-        tasks.append(f"1. Проанализируй резюме кандидата для позиции {(profession or 'профессия не указана').upper()}. Напиши, на какие задачи он может претендовать.")
-    else:
-        tasks.append(f"1. Проведи общий анализ аудио собеседования для позиции {(profession or 'профессия не указана').upper()}. Выдели ключевые компетенции.")
-
-    tasks.append(f"2. Проанализируй рынок для профессии {(profession or 'профессия не указана').upper()}. Укажи востребованность, среднюю зарплату, конкуренцию.")
-    tasks.append(f"3. Напиши предполагаемый ответ кандидату на позицию {(profession or 'профессия не указана').upper()} (приглашение, отказ, уточнения).")
-
-    if transferable:
-        tasks.insert(1, "Учитывай переносимые навыки и смежные компетенции, даже если нет прямого опыта.")
-    if antifilter:
-        tasks.insert(0, "РАБОТАЙ В РЕЖИМЕ АНТИФИЛЬТРА: ищи сценарии успеха, а не причины отказа.")
+    """
+    Формирует промпт для анализа кандидата.
+    """
+    transcribed = data.get('transcribed_text', '')
+    vacancy = data.get('vacancy_text', '')
+    resume = data.get('resume_text', '')
+    market = data.get('market_analysis', '')
+    profession = data.get('profession', '')
+    options = data.get('options', {})
 
     prompt = f"""
-Ты – профессиональный рекрутер, специализирующийся на найме {(profession or 'профессия не указана').upper()}.
+Ты — экспертный HR-аналитик. Проведи комплексный анализ кандидата на основе следующих данных.
 
-Данные:
-{chr(10).join(blocks)}
+Транскрипция собеседования:
+{transcribed}
 
-Выполни задачи:
-{chr(10).join(tasks)}
+Описание вакансии:
+{vacancy}
 
-=== ЗАРПЛАТНАЯ АНАЛИТИКА ===
-1. Укажи рыночную вилку для этой позиции (минимальную, среднюю, максимальную) по региону (Москва/СПБ/удалёнка) с учётом опыта кандидата и стека технологий.
-2. Дай конкретную рекомендацию по офферу (диапазон или точную сумму) для этого кандидата.
-3. Прогноз удержания: как долго кандидат (с учётом его опыта и ожиданий) вероятнее всего останется в компании с такой зарплатой? (коротко: менее 6 мес, 6-12 мес, 1-2 года, более 2 лет).
+Резюме кандидата:
+{resume}
 
-Ответ оформи в виде разделов с заголовками:
-=== СООТВЕТСТВИЕ ПОЗИЦИИ {(profession or 'профессия не указана').upper()} ===
-=== АНАЛИЗ РЫНКА ===
-=== ЗАРПЛАТНАЯ АНАЛИТИКА ===
-=== ПРЕДПОЛАГАЕМЫЙ ОТВЕТ КАНДИДАТУ ===
+Анализ рынка:
+{market}
+
+Профессия:
+{profession}
+
+Дополнительные опции:
+{options}
+
+Твоя задача:
+- Оценить соответствие кандидата вакансии.
+- Выделить сильные стороны и зоны роста.
+- Дать рекомендации по дальнейшему взаимодействию.
+- Предложить, какие вопросы задать на собеседовании.
+
+Ответ должен быть структурированным, содержательным и полезным для HR-специалиста.
 """
-    return prompt
+    return prompt.strip()
+
 
 def build_workforce_prompt(data: dict) -> str:
+    """
+    Формирует промпт для workforce planning.
+    """
     tasks = data.get('tasks', '')
     current_staff = data.get('current_staff', '')
     options = data.get('options', {})
 
     prompt = f"""
-Ты — эксперт по планированию штата (workforce planning). Ответь строго в формате JSON, без лишних пояснений, без markdown.
+Ты — эксперт по планированию штата (workforce planning). Ответь строго в формате JSON, без пояснений, без markdown.
 
-Задачи организации (что нужно сделать):
+Задачи организации:
 {tasks}
 
 Текущий штат:
