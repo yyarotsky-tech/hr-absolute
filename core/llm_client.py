@@ -23,7 +23,7 @@ def ask_llm(prompt: str) -> str:
             model=DEEPSEEK_MODEL,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.7,
-            max_tokens=3000
+            max_tokens=8000
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
@@ -41,7 +41,7 @@ def ask_llm_with_history(messages: list) -> str:
             model=DEEPSEEK_MODEL,
             messages=messages,
             temperature=0.7,
-            max_tokens=1000
+            max_tokens=8000
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
