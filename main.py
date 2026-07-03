@@ -241,7 +241,7 @@ class MatchBatchResponse(BaseModel):
 # ---------- Endpoints ----------
 @app.get("/")
 async def root():
-    return {"message": "HR Absolute API is running"}
+    return {"message": "HR Absolute API is running (auto-deploy test)"}
 
 @app.get("/api/check_key")
 async def check_key(api_key: str = Depends(verify_api_key)):
