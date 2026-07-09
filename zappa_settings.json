@@ -1,0 +1,33 @@
+{
+    "production": {
+        "app_function": "main.app",
+        "project_name": "hr-absolute",
+        "runtime": "python3.12",
+        "s3_bucket": "zappa-hr-absolute",
+        "aws_region": "us-east-1",
+        "domain": "api.hr-absolute.ru",
+        "certificate_arn": "arn:aws:acm:us-east-1:123456789012:certificate/xxxxxxx",
+        "manage_roles": false,
+        "role_name": "zappa-hr-absolute-role",
+        "role_arn": "arn:aws:iam::123456789012:role/zappa-hr-absolute-role",
+        "lambda_handler": "main.app",
+        "lambda_description": "HR Absolute API",
+        "memory_size": 1024,
+        "timeout_seconds": 30,
+        "keep_warm": false,
+        "log_level": "INFO",
+        "exclude": [
+            ".env",
+            ".git",
+            "__pycache__",
+            "*.pyc",
+            "*.backup"
+        ],
+        "environment_variables": {
+            "DEEPSEEK_API_KEY": "your-deepseek-key",
+            "DEEPSEEK_MODEL": "deepseek-chat",
+            "API_KEY": "test_key_123",
+            "DB_PATH": "/tmp/hr_absolute.db"
+        }
+    }
+}

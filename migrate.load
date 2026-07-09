@@ -1,0 +1,5 @@
+LOAD DATABASE
+     FROM sqlite:///hr_absolute.db
+     INTO postgresql://hr_user:hr_pass@host.docker.internal:5432/hr_absolute
+
+WITH include drop, create tables, create indexes, reset sequences;

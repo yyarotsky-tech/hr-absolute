@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hr-absolute-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hr-absolute-backend
+  template:
+    metadata:
+      labels:
+        app: hr-absolute-backend
+    spec:
+      containers:
+      - name: backend
+        image: yura75/hr-absolute-clean:latest
+        ports:
+        - containerPort: 8000
+        env:
+        - name: API_KEY
+          value: "test_key_123"
+        - name: DB_PATH
+          value: "/data/hr_absolute.db"
+        - name: DEEPSEEK_API_KEY
+          value: sk-2e0d514157ad4070a11164288e14927bø
+        - name: DEEPSEEK_MODEL
+          value: "deepseek-chat"
+      imagePullSecrets:
+      - name: dockerhub-secret

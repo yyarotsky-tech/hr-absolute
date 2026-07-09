@@ -13,3 +13,5 @@ openai
 python-telegram-bot
 aiohttp
 typing-extensions
+openai-whisper==20250625
+torch==2.12.0

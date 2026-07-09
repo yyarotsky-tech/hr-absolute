@@ -1,0 +1,30 @@
+services:
+  db:
+    image: postgres:17
+    container_name: hr-postgres
+    environment:
+      POSTGRES_USER: hr_user
+      POSTGRES_PASSWORD: hr_pass
+      POSTGRES_DB: hr_absolute
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  backend:
+    build: .
+    container_name: hr-backend
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://hr_user:hr_pass@db:5432/hr_absolute
+      API_KEY: test_key_123
+      DEEPSEEK_API_KEY: sk-e394f3b1784f4b6cb358d2ce7b4e3279
+      DEEPSEEK_MODEL: deepseek-chat
+    depends_on:
+      - db
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
