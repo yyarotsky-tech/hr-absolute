@@ -6,6 +6,11 @@ def build_candidate_prompt(data: dict) -> str:
     profession = data.get('profession', '')
     options = data.get('options', {})
 
+    # Используем опции для настройки логики, но не показываем их в промпте
+    is_transferable = options.get('transferable', False)
+    is_antifilter = options.get('antifilter', False)
+
+    # Формируем промпт (без упоминания опций в самом тексте)
     prompt = f"""
 Ты — экспертный HR-аналитик. Проведи комплексный анализ кандидата на основе следующих данных.
 
@@ -23,9 +28,6 @@ def build_candidate_prompt(data: dict) -> str:
 
 Профессия:
 {profession}
-
-Дополнительные опции:
-{options}
 
 Твоя задача — предоставить анализ в формате Markdown. Используй:
 - Заголовки (##, ###) для разделов.
@@ -46,10 +48,8 @@ def build_candidate_prompt(data: dict) -> str:
 """
     return prompt.strip()
 
+
 def build_workforce_prompt(data: dict) -> str:
-    """
-    Формирует промпт для workforce planning.
-    """
     tasks = data.get('tasks', '')
     current_staff = data.get('current_staff', '')
     options = data.get('options', {})
