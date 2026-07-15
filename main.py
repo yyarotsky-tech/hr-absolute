@@ -9,11 +9,35 @@ from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
-from sqlalchemy.orm import Session
 from uuid import uuid4
 
-from core.db import get_db_connection, save_candidate, get_all_candidates, get_candidate, search_candidates, delete_candidate, add_vacancy, get_all_vacancies, get_vacancy, update_vacancy, delete_vacancy, get_all_vacancies_paginated, add_volunteer_vacancy, get_all_volunteer_vacancies, delete_volunteer_vacancy, save_employee_assessment, get_employee_assessments, save_candidate_report, get_candidate_reports, get_or_create_conversation, add_message_to_conversation, get_conversation_messages, init_db
+from core.db import (
+    get_db_connection,
+    save_candidate,
+    get_all_candidates,
+    get_candidate,
+    search_candidates,
+    delete_candidate,
+    add_vacancy,
+    get_all_vacancies,
+    get_vacancy,
+    update_vacancy,
+    delete_vacancy,
+    get_all_vacancies_paginated,
+    add_volunteer_vacancy,
+    get_all_volunteer_vacancies,
+    delete_volunteer_vacancy,
+    save_employee_assessment,
+    get_employee_assessments,
+    save_candidate_report,
+    get_candidate_reports,
+    get_or_create_conversation,
+    add_message_to_conversation,
+    get_conversation_messages,
+    init_db
+)
 from core.analyzers import analyze_candidate
+# from core.auth import verify_api_key  # Раскомментируйте, если есть
 
 # Инициализация БД
 init_db()
@@ -36,12 +60,13 @@ YANDEX_BUCKET_NAME = os.environ.get("YANDEX_BUCKET_NAME", "hr-absolute-stt")
 YANDEX_ACCESS_KEY = os.environ.get("YANDEX_ACCESS_KEY")
 YANDEX_SECRET_KEY = os.environ.get("YANDEX_SECRET_KEY")
 
+
 # ============================================================
 # 1. ЭНДПОИНТ: /api/transcribe (Яндекс SpeechKit)
 # ============================================================
 @app.post("/api/transcribe")
 async def transcribe_audio_endpoint(
-    file: UploadFile = Audio(...)
+    audio: UploadFile = File(...)
 ):
     """Транскрибирует аудио через Яндекс SpeechKit (асинхронное распознавание)"""
     
@@ -53,7 +78,7 @@ async def transcribe_audio_endpoint(
         )
     
     # Определяем формат по расширению
-    filename = file.filename or "audio.mp3"
+    filename = audio.filename or "audio.mp3"
     ext = os.path.splitext(filename)[1].lower().replace(".", "")
     
     allowed_extensions = ['mp3', 'ogg', 'opus', 'wav', 'flac']
@@ -65,7 +90,7 @@ async def transcribe_audio_endpoint(
     
     # Сохраняем во временный файл
     with tempfile.NamedTemporaryFile(delete=False, suffix=f".{ext}") as tmp:
-        content = await file.read()
+        content = await audio.read()
         tmp.write(content)
         tmp_path = tmp.name
     
@@ -176,7 +201,7 @@ async def transcribe_audio_endpoint(
 
 
 # ============================================================
-# 2. СУЩЕСТВУЮЩИЕ ЭНДПОИНТЫ
+# 2. ОСТАЛЬНЫЕ ЭНДПОИНТЫ (ваши существующие)
 # ============================================================
 
 class AnalyzeCandidateRequest(BaseModel):
@@ -200,26 +225,52 @@ class AnalyzeCandidateResponse(BaseModel):
 
 @app.post("/api/analyze/candidate", response_model=AnalyzeCandidateResponse)
 async def analyze_candidate_endpoint(request: AnalyzeCandidateRequest):
-    # Здесь ваш существующий код
-    # ...
-    return AnalyzeCandidateResponse(
-        fit_score=85,
-        strengths=["Опыт работы", "Навыки"],
-        weaknesses=["Нет опыта в госсекторе"],
-        questions_for_interview=["Вопрос 1", "Вопрос 2"],
-        recommendation="Рекомендован",
-        red_flags=[],
-        reasoning="Кандидат подходит",
-        candidate_id=1,
-        vacancy_id=1,
-        analysis_id=1
-    )
+    """
+    Анализирует кандидата на основе текста резюме, вакансии и транскрипции.
+    Возвращает оценку, сильные/слабые стороны, вопросы и рекомендацию.
+    """
+    try:
+        # Вызов вашей существующей функции анализа
+        result = await analyze_candidate(
+            resume_text=request.resume_text,
+            vacancy_text=request.vacancy_text,
+            transcribed_text=request.transcribed_text,
+            mode=request.mode
+        )
+        
+        # Сохранение кандидата и анализа в БД
+        # Здесь ваш код сохранения...
+        
+        return AnalyzeCandidateResponse(
+            fit_score=result.get("fit_score", 85),
+            strengths=result.get("strengths", []),
+            weaknesses=result.get("weaknesses", []),
+            questions_for_interview=result.get("questions_for_interview", []),
+            recommendation=result.get("recommendation", "Рекомендован"),
+            red_flags=result.get("red_flags"),
+            reasoning=result.get("reasoning", "Анализ завершен"),
+            candidate_id=1,  # Замените на реальный ID из БД
+            vacancy_id=1,    # Замените на реальный ID из БД
+            analysis_id=1    # Замените на реальный ID из БД
+        )
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
 
 
 # ============================================================
-# 3. HEALTH CHECK
+# 3. CRUD ЭНДПОИНТЫ (если есть)
 # ============================================================
-@app.get("/health")
+
+@app.get("/api/candidates")
+def get_candidates():
+    return {"candidates": get_all_candidates()}
+
+@app.get("/api/vacancies")
+def get_vacancies():
+    return {"vacancies": get_all_vacancies()}
+
+@app.get("/api/health")
 def health_check():
     return {"status": "ok"}
 
