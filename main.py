@@ -41,7 +41,7 @@ YANDEX_SECRET_KEY = os.environ.get("YANDEX_SECRET_KEY")
 # ============================================================
 @app.post("/api/transcribe")
 async def transcribe_audio_endpoint(
-    file: UploadFile = File(...)
+    file: UploadFile = Audio(...)
 ):
     """Транскрибирует аудио через Яндекс SpeechKit (асинхронное распознавание)"""
     
