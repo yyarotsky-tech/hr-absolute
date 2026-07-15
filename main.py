@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from sqlalchemy.orm import Session
 
-from core.database import get_db, engine, Base
+from core.db import get_db, engine, Base
 from core.models import Candidate, Vacancy, AnalysisHistory
 from core.analyzers import analyze_candidate
 from core.auth import verify_api_key
