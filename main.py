@@ -264,11 +264,11 @@ async def analyze_candidate_endpoint(request: AnalyzeCandidateRequest):
 
 @app.get("/api/candidates")
 def get_candidates():
-    return {"candidates": get_all_candidates()}
+    return get_all_candidates()  # просто массив
 
 @app.get("/api/vacancies")
 def get_vacancies():
-    return {"vacancies": get_all_vacancies()}
+    return get_all_vacancies()  # просто массив
 
 @app.get("/api/health")
 def health_check():
