@@ -14,7 +14,6 @@ from uuid import uuid4
 
 from core.db import get_db_connection, save_candidate, get_all_candidates, get_candidate, search_candidates, delete_candidate, add_vacancy, get_all_vacancies, get_vacancy, update_vacancy, delete_vacancy, get_all_vacancies_paginated, add_volunteer_vacancy, get_all_volunteer_vacancies, delete_volunteer_vacancy, save_employee_assessment, get_employee_assessments, save_candidate_report, get_candidate_reports, get_or_create_conversation, add_message_to_conversation, get_conversation_messages, init_db
 from core.analyzers import analyze_candidate
-from core.auth import verify_api_key
 
 # Инициализация БД
 init_db()
