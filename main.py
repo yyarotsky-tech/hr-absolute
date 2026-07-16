@@ -37,7 +37,6 @@ from core.db import (
     init_db
 )
 from core.analyzers import analyze_candidate
-# from core.auth import verify_api_key  # Раскомментируйте, если есть
 
 # Инициализация БД
 init_db()
@@ -64,7 +63,6 @@ YANDEX_SECRET_KEY = os.environ.get("YANDEX_SECRET_KEY")
 # ============================================================
 # 1. ЭНДПОИНТ: /api/transcribe (Яндекс SpeechKit)
 # ============================================================
-
 @app.post("/api/transcribe")
 async def transcribe_audio_endpoint(audio: UploadFile = File(...)):
     """Транскрибирует аудио через Яндекс SpeechKit (асинхронное распознавание)"""
@@ -208,14 +206,12 @@ async def transcribe_audio_endpoint(audio: UploadFile = File(...)):
                 print("🔴 15. Речь не обнаружена")
                 raise HTTPException(status_code=400, detail="No speech detected in audio")
             print(f"✅ 16. Транскрипция получена, длина: {len(text)}")
-            # Вместо:
-        
-        return {
-            "text": text.strip(),
-            "data": {"text": text.strip()},
-            "transcription": text.strip(),
-            "result": text.strip()
-        }
+            return {
+                "text": text.strip(),
+                "data": {"text": text.strip()},
+                "transcription": text.strip(),
+                "result": text.strip()
+            }
         else:
             print("🔴 15. Не удалось извлечь текст")
             raise HTTPException(status_code=500, detail="Failed to extract transcription")
@@ -235,6 +231,7 @@ async def transcribe_audio_endpoint(audio: UploadFile = File(...)):
                 s3.delete_object(Bucket=YANDEX_BUCKET_NAME, Key=object_key)
             except:
                 pass
+
 
 # ============================================================
 # 2. ОСТАЛЬНЫЕ ЭНДПОИНТЫ
