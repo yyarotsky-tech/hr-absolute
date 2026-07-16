@@ -209,8 +209,7 @@ async def transcribe_audio_endpoint(audio: UploadFile = File(...)):
                 raise HTTPException(status_code=400, detail="No speech detected in audio")
             print(f"✅ 16. Транскрипция получена, длина: {len(text)}")
             # Вместо:
-        return {"text": text.strip()}
-
+        
         return {
             "text": text.strip(),
             "data": {"text": text.strip()},
