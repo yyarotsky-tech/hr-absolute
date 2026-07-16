@@ -64,20 +64,26 @@ YANDEX_SECRET_KEY = os.environ.get("YANDEX_SECRET_KEY")
 # ============================================================
 # 1. ЭНДПОИНТ: /api/transcribe (Яндекс SpeechKit)
 # ============================================================
+
 @app.post("/api/transcribe")
 async def transcribe_audio_endpoint(audio: UploadFile = File(...)):
     """Транскрибирует аудио через Яндекс SpeechKit (асинхронное распознавание)"""
 
+    print("🔵 1. Эндпоинт вызван")
+
     # Проверяем наличие ключей
     if not all([YANDEX_API_KEY, YANDEX_FOLDER_ID, YANDEX_ACCESS_KEY, YANDEX_SECRET_KEY]):
+        print("🔴 2. Ошибка: не все ключи заданы")
         raise HTTPException(
             status_code=500,
             detail="Yandex Cloud credentials are not configured. Please set YANDEX_API_KEY, YANDEX_FOLDER_ID, YANDEX_ACCESS_KEY, YANDEX_SECRET_KEY environment variables."
         )
+    print("✅ 2. Ключи найдены")
 
     # Определяем формат по расширению
     filename = audio.filename or "audio.mp3"
     ext = os.path.splitext(filename)[1].lower().replace(".", "")
+    print(f"✅ 3. Формат: {ext}")
 
     allowed_extensions = ['mp3', 'ogg', 'opus', 'wav', 'flac']
     if ext not in allowed_extensions:
@@ -91,6 +97,7 @@ async def transcribe_audio_endpoint(audio: UploadFile = File(...)):
         content = await audio.read()
         tmp.write(content)
         tmp_path = tmp.name
+    print(f"✅ 4. Файл сохранен: {tmp_path}, размер: {len(content)} байт")
 
     object_key = None
     s3 = None
@@ -98,7 +105,8 @@ async def transcribe_audio_endpoint(audio: UploadFile = File(...)):
     try:
         # 1. Загружаем файл в Object Storage
         object_key = f"audio_{uuid4()}.{ext}"
-        
+        print(f"✅ 5. Object key: {object_key}")
+
         session = boto3.session.Session()
         s3 = session.client(
             service_name='s3',
@@ -107,16 +115,20 @@ async def transcribe_audio_endpoint(audio: UploadFile = File(...)):
             aws_secret_access_key=YANDEX_SECRET_KEY,
             config=Config(
                 signature_version='s3v4',
-                region_name='ru-central1'  # <-- Критично для Яндекс.Облака!
+                region_name='ru-central1'
             )
         )
+        print("✅ 6. S3 клиент создан")
 
         with open(tmp_path, 'rb') as f:
             s3.upload_fileobj(f, YANDEX_BUCKET_NAME, object_key)
+        print("✅ 7. Файл загружен в бакет")
 
         file_uri = f"https://storage.yandexcloud.net/{YANDEX_BUCKET_NAME}/{object_key}"
+        print(f"✅ 8. URI: {file_uri}")
 
         # 2. Запускаем распознавание
+        print("🔵 9. Запуск распознавания...")
         headers = {
             "Authorization": f"Api-Key {YANDEX_API_KEY}",
             "x-folder-id": YANDEX_FOLDER_ID,
@@ -150,23 +162,28 @@ async def transcribe_audio_endpoint(audio: UploadFile = File(...)):
             headers=headers,
             json=body
         )
+        print(f"✅ 10. Распознавание запущено, статус: {response.status_code}")
 
         if response.status_code != 200:
+            print(f"🔴 11. Ошибка запуска: {response.text}")
             raise HTTPException(
                 status_code=response.status_code,
                 detail=f"Recognition start failed: {response.text}"
             )
 
         operation_id = response.json()["id"]
+        print(f"✅ 11. Операция: {operation_id}")
 
         # 3. Ждём результат
+        print("🔵 12. Ожидание результата...")
         result_url = f"https://operation.api.cloud.yandex.net/operations/{operation_id}"
-        max_attempts = 120  # 120 * 3 секунды = 6 минут
+        max_attempts = 120
         attempts = 0
 
         while attempts < max_attempts:
             result_response = requests.get(result_url, headers=headers)
             if result_response.status_code != 200:
+                print(f"🔴 13. Ошибка проверки статуса: {result_response.text}")
                 raise HTTPException(
                     status_code=result_response.status_code,
                     detail=f"Status check failed: {result_response.text}"
@@ -174,24 +191,30 @@ async def transcribe_audio_endpoint(audio: UploadFile = File(...)):
 
             data = result_response.json()
             if data.get("done"):
+                print("✅ 13. Операция завершена")
                 break
 
             attempts += 1
             time.sleep(3)
 
         if attempts >= max_attempts:
+            print("🔴 14. Таймаут")
             raise HTTPException(status_code=408, detail="Recognition timeout")
 
         # 4. Извлекаем текст
         if "response" in data and "chunks" in data["response"]:
             text = "".join(chunk["alternatives"][0]["text"] for chunk in data["response"]["chunks"])
             if not text.strip():
+                print("🔴 15. Речь не обнаружена")
                 raise HTTPException(status_code=400, detail="No speech detected in audio")
+            print(f"✅ 16. Транскрипция получена, длина: {len(text)}")
             return {"text": text.strip()}
         else:
+            print("🔴 15. Не удалось извлечь текст")
             raise HTTPException(status_code=500, detail="Failed to extract transcription")
 
     except Exception as e:
+        print(f"🔴 ОшибКА: {type(e).__name__}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Transcription failed: {str(e)}")
 
     finally:
@@ -204,8 +227,7 @@ async def transcribe_audio_endpoint(audio: UploadFile = File(...)):
             try:
                 s3.delete_object(Bucket=YANDEX_BUCKET_NAME, Key=object_key)
             except:
-                pass  # Не критично
-
+                pass
 
 # ============================================================
 # 2. ОСТАЛЬНЫЕ ЭНДПОИНТЫ
